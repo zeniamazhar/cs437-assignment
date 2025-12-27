@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - SCADA Alarm Management{% endblock %}
+
+{% block content %}
+<div class="stats">
+    <div class="stat-card">
+        <h3>{{ active_count }}</h3>
+        <p>Active Alarms</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ acknowledged_count }}</h3>
+        <p>Acknowledged</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ escalated_count }}</h3>
+        <p>Escalated</p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Active Alarms</h2>
+    
+    {% if alarms %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Alarm Code</th>
+                <th>Severity</th>
+                <th>Description</th>
+                <th>Location</th>
+                <th>Triggered At</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alarm in alarms %}
+            <tr>
+                <td>{{ alarm.id }}</td>
+                <td>{{ alarm.alarm_code }}</td>
+                <td>
+                    <span class="badge badge-{{ alarm.severity }}">
+                        {{ alarm.severity|upper }}
+                    </span>
+                </td>
+                <td>{{ alarm.description }}</td>
+                <td>{{ alarm.location }}</td>
+                <td>{{ alarm.triggered_at }}</td>
+                <td>
+                    {% if alarm.acknowledged %}
+                        ✅ Acknowledged
+                    {% elif alarm.silenced %}
+                        🔇 Silenced
+                    {% elif alarm.escalated %}
+                        ⬆️ Escalated
+                    {% else %}
+                        🔴 Active
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ url_for('alarm_detail', alarm_id=alarm.id) }}" class="btn btn-primary" style="padding: 0.4rem 0.8rem;">View</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; color: #666; padding: 2rem;">No active alarms</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Quick Actions</h2>
+    <p style="margin-bottom: 1rem; color: #666;">Generate reports, export logs, and manage system settings</p>
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        <a href="{{ url_for('reports') }}" class="btn btn-primary">Generate Report</a>
+        <a href="{{ url_for('export_logs') }}" class="btn btn-primary">Export Logs</a>
+        <a href="{{ url_for('alarms') }}" class="btn btn-primary">View All Alarms</a>
+    </div>
+</div>
+{% endblock %}

