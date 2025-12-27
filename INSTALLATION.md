@@ -1,15 +1,5 @@
 # Installation Guide - Task 9 SCADA Alarm Management Console
 
-## 📦 What You've Downloaded
-
-This ZIP file contains a complete SCADA security project with:
-- 2 Flask applications (vulnerable + patched)
-- 1 Security monitoring system
-- 4 Documented vulnerabilities with exploits
-- Comprehensive documentation (15,000+ words)
-- Docker deployment files
-- Automated testing scripts
-
 ## 🚀 Quick Installation
 
 ### Step 1: Extract the ZIP file
