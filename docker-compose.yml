@@ -1,0 +1,81 @@
+services:
+  # Vulnerable SCADA Application
+  scada-vulnerable:
+    build: ./vulnerable
+    container_name: scada_vulnerable
+    ports:
+      - "5000:5000"
+    volumes:
+      - vulnerable-data:/app/data
+      - vulnerable-logs:/app/logs
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_PATH=/app/data/scada_alarms.db
+    networks:
+      - scada-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Patched Secure SCADA Application
+  scada-patched:
+    build: ./patched
+    container_name: scada_patched
+    ports:
+      - "5001:5001"
+    volumes:
+      - patched-data:/app/data
+      - patched-logs:/app/logs
+    environment:
+      - FLASK_ENV=production
+      - DATABASE_PATH=/app/data/scada_alarms.db
+    networks:
+      - scada-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Security Monitoring System
+  monitoring:
+    build: ./monitoring
+    container_name: scada_monitoring
+    ports:
+      - "5002:5002"
+    volumes:
+      - monitoring-data:/app/data
+    networks:
+      - scada-network
+    depends_on:
+      - scada-vulnerable
+      - scada-patched
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  vulnerable-data:
+    driver: local
+  vulnerable-logs:
+    driver: local
+  patched-data:
+    driver: local
+  patched-logs:
+    driver: local
+  monitoring-data:
+    driver: local
+
+networks:
+  scada-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

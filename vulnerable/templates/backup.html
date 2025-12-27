@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Backup - SCADA Alarm Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Database Backup & Restore</h2>
+    
+    <h3 style="margin-top: 2rem; color: #667eea;">Create Backup</h3>
+    <form method="POST" action="{{ url_for('backup') }}">
+        <input type="hidden" name="action" value="backup">
+        <div class="form-group">
+            <label for="backup_name">Backup Filename</label>
+            <input type="text" id="backup_name" name="backup_name" 
+                   placeholder="backup_2025_01_15.db" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Create Backup</button>
+    </form>
+    
+    <hr style="margin: 2rem 0; border: none; border-top: 1px solid #eee;">
+    
+    <h3 style="color: #667eea;">Restore from Backup</h3>
+    <form method="POST" action="{{ url_for('backup') }}">
+        <input type="hidden" name="action" value="restore">
+        <div class="form-group">
+            <label for="restore_file">Select Backup File</label>
+            <select id="restore_file" name="restore_file">
+                {% for backup in backups %}
+                <option value="{{ backup }}">{{ backup }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-danger">Restore Database</button>
+    </form>
+</div>
+
+<div class="card" style="background: #fff3cd; border: 2px solid #ffc107;">
+    <h3 style="color: #856404;">⚠️ VULNERABILITY: Path Traversal</h3>
+    <p style="color: #856404;">Try: <code>../../../../../../etc/passwd</code></p>
+</div>
+{% endblock %}

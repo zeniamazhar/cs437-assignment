@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Firmware Restore - SCADA Alarm Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Firmware Restore</h2>
+    
+    {% if message %}
+    <div class="alert alert-success">{{ message }}</div>
+    {% endif %}
+    
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    
+    <form method="POST" action="{{ url_for('firmware_restore') }}">
+        <div class="form-group">
+            <label for="firmware_path">Firmware File Path</label>
+            <input type="text" id="firmware_path" name="firmware_path" 
+                   placeholder="/path/to/firmware.bin" required>
+            <small style="color: #666; display: block; margin-top: 0.5rem;">
+                Enter absolute or relative path to firmware file
+            </small>
+        </div>
+        <button type="submit" class="btn btn-primary">Load Firmware</button>
+    </form>
+    
+    {% if firmware_data %}
+    <h3 style="margin-top: 2rem; color: #667eea;">Firmware Preview</h3>
+    <pre style="background: #f8f9fa; padding: 1rem; border-radius: 5px; overflow-x: auto; max-height: 400px;">{{ firmware_data }}</pre>
+    {% endif %}
+</div>
+
+<div class="card" style="background: #fff3cd; border: 2px solid #ffc107;">
+    <h3 style="color: #856404;">⚠️ VULNERABILITY: Path Traversal</h3>
+    <p style="color: #856404;">Examples:</p>
+    <ul style="color: #856404; margin-top: 0.5rem;">
+        <li><code>/etc/passwd</code></li>
+        <li><code>../../app.py</code></li>
+        <li><code>/proc/self/environ</code></li>
+    </ul>
+</div>
+{% endblock %}

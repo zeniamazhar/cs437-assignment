@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Monitoring Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header p {
+            opacity: 0.9;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: #16213e;
+            padding: 1.5rem;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        .stat-card.critical {
+            border-left-color: #e74c3c;
+        }
+        
+        .stat-card.high {
+            border-left-color: #f39c12;
+        }
+        
+        .stat-card.medium {
+            border-left-color: #3498db;
+        }
+        
+        .stat-card h3 {
+            font-size: 2.5rem;
+            color: #667eea;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stat-card.critical h3 { color: #e74c3c; }
+        .stat-card.high h3 { color: #f39c12; }
+        .stat-card.medium h3 { color: #3498db; }
+        
+        .stat-card p {
+            color: #bbb;
+            font-size: 0.95rem;
+        }
+        
+        .card {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 1.5rem;
+            font-size: 1.8rem;
+        }
+        
+        .vulnerability-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        
+        .vuln-card {
+            background: #0f3460;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .vuln-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+        
+        .vuln-card h3 {
+            color: #fff;
+            margin-bottom: 1rem;
+        }
+        
+        .vuln-stats {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .vuln-stat {
+            text-align: center;
+        }
+        
+        .vuln-stat .number {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .vuln-stat.blocked .number {
+            color: #27ae60;
+        }
+        
+        .vuln-stat.successful .number {
+            color: #e74c3c;
+        }
+        
+        .vuln-stat .label {
+            font-size: 0.85rem;
+            color: #bbb;
+            margin-top: 0.25rem;
+        }
+        
+        .events-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        
+        .events-table th,
+        .events-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .events-table th {
+            background: #0f3460;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .events-table tr:hover {
+            background: rgba(102, 126, 234, 0.1);
+        }
+        
+        .badge {
+            padding: 0.4rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .badge.critical {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+        }
+        
+        .badge.high {
+            background: rgba(243, 156, 18, 0.2);
+            color: #f39c12;
+        }
+        
+        .badge.medium {
+            background: rgba(52, 152, 219, 0.2);
+            color: #3498db;
+        }
+        
+        .badge.low {
+            background: rgba(149, 165, 166, 0.2);
+            color: #95a5a6;
+        }
+        
+        .badge.blocked {
+            background: rgba(39, 174, 96, 0.2);
+            color: #27ae60;
+        }
+        
+        .badge.vulnerable {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+        }
+        
+        .filters {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 0.7rem 1.5rem;
+            background: #0f3460;
+            color: #fff;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .filter-btn:hover,
+        .filter-btn.active {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.2);
+        }
+        
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            float: right;
+        }
+        
+        .refresh-status {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #27ae60;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        .code {
+            background: #0a0a0a;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            color: #f39c12;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔍 SCADA Security Monitoring</h1>
+        <p>Real-time attack detection and vulnerability tracking</p>
+    </div>
+    
+    <div class="container">
+        <!-- Statistics Overview -->
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card critical">
+                <h3 id="totalEvents">0</h3>
+                <p>Total Security Events</p>
+            </div>
+            <div class="stat-card high">
+                <h3 id="criticalEvents">0</h3>
+                <p>Critical Severity</p>
+            </div>
+            <div class="stat-card medium">
+                <h3 id="blockedEvents">0</h3>
+                <p>Attacks Blocked</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="successfulEvents">0</h3>
+                <p>Successful Attacks</p>
+            </div>
+        </div>
+        
+        <!-- Vulnerability Breakdown -->
+        <div class="card">
+            <h2>Vulnerability Breakdown</h2>
+            <div class="vulnerability-grid" id="vulnGrid">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+        
+        <!-- Recent Events -->
+        <div class="card">
+            <h2>
+                Recent Security Events
+                <div class="auto-refresh">
+                    <div class="refresh-status"></div>
+                    <span style="font-size: 0.9rem; color: #bbb;">Auto-refreshing</span>
+                </div>
+            </h2>
+            
+            <div class="filters">
+                <button class="filter-btn active" onclick="filterEvents('all')">All Events</button>
+                <button class="filter-btn" onclick="filterEvents('CSRF')">CSRF</button>
+                <button class="filter-btn" onclick="filterEvents('SSRF')">SSRF</button>
+                <button class="filter-btn" onclick="filterEvents('PATH_TRAVERSAL')">Path Traversal</button>
+                <button class="filter-btn" onclick="filterEvents('SQL_INJECTION')">SQL Injection</button>
+            </div>
+            
+            <table class="events-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Vulnerability</th>
+                        <th>Severity</th>
+                        <th>Source IP</th>
+                        <th>Endpoint</th>
+                        <th>Status</th>
+                        <th>System</th>
+                    </tr>
+                </thead>
+                <tbody id="eventsTableBody">
+                    <!-- Populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        let currentFilter = 'all';
+        
+        // Fetch and display statistics
+        async function loadStatistics() {
+            try {
+                const response = await fetch('/api/statistics');
+                const data = await response.json();
+                
+                // Update vulnerability cards
+                const vulnGrid = document.getElementById('vulnGrid');
+                vulnGrid.innerHTML = '';
+                
+                const vulnTypes = {
+                    'CSRF': 'Cross-Site Request Forgery',
+                    'SSRF': 'Server-Side Request Forgery',
+                    'PATH_TRAVERSAL': 'Path Traversal',
+                    'SQL_INJECTION': 'SQL Injection'
+                };
+                
+                for (const [type, name] of Object.entries(vulnTypes)) {
+                    const stats = data.vulnerabilities[type] || {total: 0, blocked: 0, successful: 0};
+                    
+                    const card = document.createElement('div');
+                    card.className = 'vuln-card';
+                    card.onclick = () => filterEvents(type);
+                    card.innerHTML = `
+                        <h3>${name}</h3>
+                        <p style="color: #bbb;">${type}</p>
+                        <div class="vuln-stats">
+                            <div class="vuln-stat">
+                                <div class="number">${stats.total}</div>
+                                <div class="label">Total</div>
+                            </div>
+                            <div class="vuln-stat successful">
+                                <div class="number">${stats.successful}</div>
+                                <div class="label">Successful</div>
+                            </div>
+                            <div class="vuln-stat blocked">
+                                <div class="number">${stats.blocked}</div>
+                                <div class="label">Blocked</div>
+                            </div>
+                        </div>
+                    `;
+                    vulnGrid.appendChild(card);
+                }
+                
+                // Update overall statistics
+                const totalEvents = Object.values(data.vulnerabilities).reduce((sum, v) => sum + v.total, 0);
+                const blockedEvents = Object.values(data.vulnerabilities).reduce((sum, v) => sum + v.blocked, 0);
+                const successfulEvents = totalEvents - blockedEvents;
+                const criticalEvents = data.severity['CRITICAL'] || 0;
+                
+                document.getElementById('totalEvents').textContent = totalEvents;
+                document.getElementById('criticalEvents').textContent = criticalEvents;
+                document.getElementById('blockedEvents').textContent = blockedEvents;
+                document.getElementById('successfulEvents').textContent = successfulEvents;
+                
+            } catch (error) {
+                console.error('Error loading statistics:', error);
+            }
+        }
+        
+        // Fetch and display events
+        async function loadEvents(type = '') {
+            try {
+                const url = type ? `/api/events?type=${type}` : '/api/events';
+                const response = await fetch(url);
+                const events = await response.json();
+                
+                const tbody = document.getElementById('eventsTableBody');
+                tbody.innerHTML = '';
+                
+                if (events.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #bbb;">No events recorded yet. Generate sample data or start testing vulnerabilities.</td></tr>';
+                    return;
+                }
+                
+                events.forEach(event => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${new Date(event.timestamp).toLocaleString()}</td>
+                        <td><span class="code">${event.vulnerability_type || 'N/A'}</span></td>
+                        <td><span class="badge ${event.severity.toLowerCase()}">${event.severity}</span></td>
+                        <td>${event.source_ip}</td>
+                        <td><span class="code">${event.endpoint}</span></td>
+                        <td><span class="badge ${event.blocked ? 'blocked' : 'vulnerable'}">${event.blocked ? 'BLOCKED' : 'SUCCESSFUL'}</span></td>
+                        <td><span class="badge">${event.system_version}</span></td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                
+            } catch (error) {
+                console.error('Error loading events:', error);
+            }
+        }
+        
+        // Filter events by vulnerability type
+        function filterEvents(type) {
+            currentFilter = type;
+            
+            // Update active button
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Load filtered events
+            if (type === 'all') {
+                loadEvents();
+            } else {
+                loadEvents(type);
+            }
+        }
+        
+        // Auto-refresh data every 5 seconds
+        setInterval(() => {
+            loadStatistics();
+            if (currentFilter === 'all') {
+                loadEvents();
+            } else {
+                loadEvents(currentFilter);
+            }
+        }, 5000);
+        
+        // Initial load
+        loadStatistics();
+        loadEvents();
+        
+        // Generate sample data button (for demo)
+        console.log('💡 Tip: Visit /api/generate_sample_data to populate with demo events');
+    </script>
+</body>
+</html>

