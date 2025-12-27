@@ -2,21 +2,7 @@
 
 ## 🚀 Quick Installation
 
-### Step 1: Extract the ZIP file
-
-**Windows:**
-- Right-click the ZIP file
-- Select "Extract All..."
-- Choose destination folder
-- Click "Extract"
-
-**Mac/Linux:**
-```bash
-unzip task9_scada_alarm_console.zip
-cd task9_scada_alarm_console
-```
-
-### Step 2: Verify the structure
+### Step 1: Verify the structure
 
 You should see this folder structure:
 ```
@@ -32,7 +18,7 @@ task9_scada_alarm_console/
 └── docker-compose.yml
 ```
 
-### Step 3: Choose your setup method
+### Step 2: Choose your setup method
 
 ## Option A: Docker (Recommended - 5 minutes)
 
