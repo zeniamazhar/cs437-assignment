@@ -380,7 +380,6 @@ def reports():
     
     if request.method == 'POST':
         report_type = request.form.get('report_type', 'summary')
-        data_source = request.form.get('data_source', '')  # URL to fetch data from
         template_url = request.form.get('template_url', '')  # URL to fetch template from
         
         db = get_db()
@@ -397,15 +396,7 @@ def reports():
             'report_type': report_type
         }
         
-        # VULNERABLE: Fetch external data without validation (SSRF)
-        if data_source:
-            try:
-                # No validation of URL - can access internal services
-                response = requests.get(data_source, timeout=5)
-                report_data['external_data'] = response.text
-            except Exception as e:
-                report_data['external_data'] = f'Error fetching data: {str(e)}'
-        
+      
         # VULNERABLE: Fetch and execute external template (Template Injection + SSRF)
         if template_url:
             try:
@@ -598,6 +589,11 @@ def search_alarms_api():
 @app.route('/report_template')
 def serve_report_template():
     with open('templates/report_template.html', 'r') as f:
+        return f.read(), 200, {'Content-Type': 'text/plain'}
+
+@app.route('/secret')
+def serve_secret():
+    with open('templates/private_data.html', 'r') as f:
         return f.read(), 200, {'Content-Type': 'text/plain'}
 
 
