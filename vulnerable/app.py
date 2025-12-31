@@ -444,6 +444,8 @@ def reports():
     
     return render_template('reports.html')
 
+
+
 @app.route('/export_logs', methods=['GET', 'POST'])
 def export_logs():
     """
@@ -592,6 +594,12 @@ def search_alarms_api():
     except Exception as e:
         db.close()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/report_template')
+def serve_report_template():
+    with open('templates/report_template.html', 'r') as f:
+        return f.read(), 200, {'Content-Type': 'text/plain'}
+
 
 if __name__ == '__main__':
     init_db()
