@@ -1,13 +1,14 @@
 """
-SCADA Alarm Management Console - VULNERABLE VERSION
+SCADA Alarm Management Console - VULNERABLE VERSION (WITH MONITORING)
 Task 9 - CS 437 Assignment
 
 This version intentionally contains the following vulnerabilities:
-1. Missing CSRF on POST form (alarm acknowledgement)
+1. Missing CSRF Protection on POST forms
 2. SSRF via Template Injection in Reporting Engines
 3. File Path Injection (Directory Traversal)
 4. SQL Injection Only Works With Specific Encodings (UTF-16/UTF-7)
 
+*** MONITORING INTEGRATION ADDED ***
 DO NOT USE IN PRODUCTION
 """
 
@@ -23,6 +24,9 @@ from jinja2 import Template
 import json
 import base64
 import codecs
+from collections import defaultdict
+file_access_counter = defaultdict(int)
+
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
@@ -34,6 +38,36 @@ app.config['REPORT_DIR'] = 'reports'
 os.makedirs('logs', exist_ok=True)
 os.makedirs('reports', exist_ok=True)
 os.makedirs('backups', exist_ok=True)
+
+# *** MONITORING INTEGRATION ***
+MONITORING_URL = "http://monitoring:5002"
+
+def log_to_monitoring(event_data):
+    """Send security event to monitoring system"""
+    try:
+        requests.post(
+            f"{MONITORING_URL}/api/log_event",
+            json=event_data,
+            timeout=1
+        )
+    except Exception as e:
+        # Don't let monitoring failures break the app
+        print("MONITORING ERROR:", e)
+
+        pass
+
+def detect_sqli_pattern(input_str):
+    """Simple SQL injection pattern detection"""
+    if not input_str:
+        return False
+    sqli_patterns = ["'", "OR", "UNION", "SELECT", "--", ";", "/*", "*/", "DROP", "DELETE"]
+    return any(pattern.lower() in str(input_str).lower() for pattern in sqli_patterns)
+
+def detect_path_traversal(path):
+    """Detect path traversal attempts"""
+    if not path:
+        return False
+    return '..' in path or path.startswith('/') or path.startswith('\\')
 
 def get_db():
     """Get database connection"""
@@ -167,7 +201,7 @@ def index():
 def login():
     """
     VULNERABILITY 4: SQL Injection Only Works With Specific Encodings
-    The application uses UTF-16 encoding which bypasses basic filters
+    *** MONITORING: Login attempts tracked ***
     """
     if request.method == 'POST':
         username = request.form.get('username', '')
@@ -179,7 +213,6 @@ def login():
         # If UTF-16 or UTF-7 encoded, decode it
         if encoding.lower() in ['utf-16', 'utf-7', 'utf-16le', 'utf-16be']:
             try:
-                # Re-decode the username with the specified encoding
                 username_bytes = username.encode('latin-1')
                 username = username_bytes.decode(encoding.lower())
             except:
@@ -191,12 +224,47 @@ def login():
         cursor = db.cursor()
         
         # VULNERABLE: Direct string concatenation without parameterization
-        # Works with specific encodings that bypass basic filters
         query = f"SELECT * FROM users WHERE username = '{username}' AND password_hash = '{password_hash}'"
         
         try:
             cursor.execute(query)
             user = cursor.fetchone()
+            
+            # *** MONITORING: Log login attempt ***
+            log_to_monitoring({
+                'event_type': 'LOGIN_ATTEMPT',
+                'severity': 'INFO' if user else 'MEDIUM',
+                'source_ip': request.remote_addr,
+                'user_agent': request.headers.get('User-Agent', ''),
+                'endpoint': '/login',
+                'method': 'POST',
+                'request_payload': json.dumps({'username': username}),
+                'vulnerability_type': 'BRUTE_FORCE' if not user else 'NONE',
+                'attack_classification': 'Failed Login' if not user else 'Successful Login',
+                'blocked': False,
+                'description': f"Login attempt for user '{username}' from {request.remote_addr}",
+                'system_version': 'vulnerable',
+                'username': username,
+                'success': bool(user)
+            })
+            
+            # Detect SQL injection patterns
+            if detect_sqli_pattern(username):
+                log_to_monitoring({
+                    'event_type': 'SQL_INJECTION_ATTEMPT',
+                    'severity': 'CRITICAL',
+                    'source_ip': request.remote_addr,
+                    'user_agent': request.headers.get('User-Agent', ''),
+                    'endpoint': '/login',
+                    'method': 'POST',
+                    'request_payload': json.dumps({'username': username, 'encoding': encoding}),
+                    'vulnerability_type': 'SQL_INJECTION',
+                    'attack_classification': 'Encoding-based SQL Injection',
+                    'blocked': False,
+                    'description': f"SQL injection pattern detected in username with encoding {encoding}",
+                    'system_version': 'vulnerable',
+                    'recommended_action': 'Block IP after 3 attempts'
+                })
             
             if user:
                 session['username'] = user['username']
@@ -276,11 +344,30 @@ def alarm_detail(alarm_id):
 def acknowledge_alarm(alarm_id):
     """
     VULNERABILITY 1: Missing CSRF Protection on POST form
-    No CSRF token validation - vulnerable to CSRF attacks
-    An attacker can craft a malicious page that automatically acknowledges alarms
+    *** MONITORING: CSRF attempts tracked ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    # *** MONITORING: Log CSRF vulnerability ***
+    csrf_token = request.form.get('csrf_token', '')
+    log_to_monitoring({
+        'event_type': 'CSRF_VULNERABLE_REQUEST',
+        'severity': 'MEDIUM',
+        'source_ip': request.remote_addr,
+        'user_agent': request.headers.get('User-Agent', ''),
+        'endpoint': f'/acknowledge/{alarm_id}',
+        'method': 'POST',
+        'request_headers': json.dumps(dict(request.headers)),
+        'vulnerability_type': 'CSRF',
+        'attack_classification': 'Missing CSRF Token',
+        'blocked': False,
+        'description': f"POST request without CSRF protection from {request.remote_addr}",
+        'system_version': 'vulnerable',
+        'recommended_action': 'Implement CSRF tokens',
+        'session_id': request.cookies.get('session', ''),
+        'username': session['username']
+    })
     
     db = get_db()
     cursor = db.cursor()
@@ -309,10 +396,21 @@ def acknowledge_alarm(alarm_id):
 def silence_alarm(alarm_id):
     """
     VULNERABILITY 1: Missing CSRF Protection (another endpoint)
-    Silence alarm temporarily - also vulnerable to CSRF
+    *** MONITORING: CSRF attempts tracked ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    # *** MONITORING: Log CSRF vulnerability ***
+    log_to_monitoring({
+        'event_type': 'CSRF_VULNERABLE_REQUEST',
+        'severity': 'MEDIUM',
+        'source_ip': request.remote_addr,
+        'endpoint': f'/silence/{alarm_id}',
+        'method': 'POST',
+        'vulnerability_type': 'CSRF',
+        'system_version': 'vulnerable'
+    })
     
     duration = request.form.get('duration', 30)  # minutes
     
@@ -342,10 +440,21 @@ def silence_alarm(alarm_id):
 def escalate_alarm(alarm_id):
     """
     VULNERABILITY 1: Missing CSRF Protection (third endpoint)
-    Escalate alarm to supervisor - vulnerable to CSRF
+    *** MONITORING: CSRF attempts tracked ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    # *** MONITORING: Log CSRF vulnerability ***
+    log_to_monitoring({
+        'event_type': 'CSRF_VULNERABLE_REQUEST',
+        'severity': 'MEDIUM',
+        'source_ip': request.remote_addr,
+        'endpoint': f'/escalate/{alarm_id}',
+        'method': 'POST',
+        'vulnerability_type': 'CSRF',
+        'system_version': 'vulnerable'
+    })
     
     supervisor = request.form.get('supervisor', 'default_supervisor')
     
@@ -373,14 +482,36 @@ def escalate_alarm(alarm_id):
 def reports():
     """
     VULNERABILITY 2: Server-Side Request Forgery via Template Injection
-    Report generation with template injection vulnerability
+    *** MONITORING: SSRF attempts tracked ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
     
     if request.method == 'POST':
         report_type = request.form.get('report_type', 'summary')
-        template_url = request.form.get('template_url', '')  # URL to fetch template from
+        template_url = request.form.get('template_url', '')
+        
+        # *** MONITORING: Log SSRF attempt ***
+        if template_url:
+            # Check for internal/private URLs
+            is_internal = any(pattern in template_url.lower() for pattern in 
+                            ['localhost', '127.0.0.1', '169.254', '192.168', '10.', '172.16'])
+            
+            log_to_monitoring({
+                'event_type': 'SSRF_ATTEMPT',
+                'severity': 'HIGH' if is_internal else 'MEDIUM',
+                'source_ip': request.remote_addr,
+                'user_agent': request.headers.get('User-Agent', ''),
+                'endpoint': '/reports',
+                'method': 'POST',
+                'request_payload': json.dumps({'template_url': template_url, 'report_type': report_type}),
+                'vulnerability_type': 'SSRF',
+                'attack_classification': 'Internal Network Access' if is_internal else 'External URL Fetch',
+                'blocked': False,
+                'description': f"Attempting to fetch template from {template_url}",
+                'system_version': 'vulnerable',
+                'recommended_action': 'Implement URL allowlist and validate domains'
+            })
         
         db = get_db()
         cursor = db.cursor()
@@ -396,7 +527,6 @@ def reports():
             'report_type': report_type
         }
         
-      
         # VULNERABLE: Fetch and execute external template (Template Injection + SSRF)
         if template_url:
             try:
@@ -407,7 +537,21 @@ def reports():
                 # VULNERABLE: Using Jinja2 Template without sandboxing
                 template = Template(template_content)
                 report_html = template.render(**report_data)
-                
+                # *** MONITORING: Log successful SSRF exploitation ***
+                log_to_monitoring({
+                    'event_type': 'SSRF_SUCCESS',
+                    'severity': 'CRITICAL',
+                    'source_ip': request.remote_addr,
+                    'endpoint': '/reports',
+                    'method': 'POST',
+                    'vulnerability_type': 'SSRF',
+                    'attack_classification': 'Internal Resource Access',
+                    'blocked': False,
+                    'description': f"SSRF successfully fetched and executed content from {template_url}",
+                    'system_version': 'vulnerable',
+                    'recommended_action': 'Block internal URLs and sandbox template rendering'
+                })
+
                 # Save report
                 report_filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
                 report_path = os.path.join(app.config['REPORT_DIR'], report_filename)
@@ -428,6 +572,17 @@ def reports():
                 
             except Exception as e:
                 db.close()
+                # *** MONITORING: Log SSRF failure ***
+                log_to_monitoring({
+                    'event_type': 'SSRF_FAILED',
+                    'severity': 'MEDIUM',
+                    'source_ip': request.remote_addr,
+                    'endpoint': '/reports',
+                    'request_payload': json.dumps({'template_url': template_url, 'error': str(e)}),
+                    'vulnerability_type': 'SSRF',
+                    'description': f"SSRF attempt failed: {str(e)}",
+                    'system_version': 'vulnerable'
+                })
                 return f"Error generating report: {str(e)}", 500
         
         db.close()
@@ -435,13 +590,11 @@ def reports():
     
     return render_template('reports.html')
 
-
-
 @app.route('/export_logs', methods=['GET', 'POST'])
 def export_logs():
     """
     VULNERABILITY 3: File Path Injection (Directory Traversal)
-    Export logs with path traversal vulnerability
+    *** MONITORING: Path traversal attempts tracked ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
@@ -449,12 +602,29 @@ def export_logs():
     if request.method == 'POST':
         log_file = request.form.get('log_file', 'alarm.log')
         
+        # *** MONITORING: Log path traversal attempt ***
+        has_traversal = detect_path_traversal(log_file)
+        
+        log_to_monitoring({
+            'event_type': 'PATH_TRAVERSAL_ATTEMPT',
+            'severity': 'HIGH' if has_traversal else 'LOW',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': '/export_logs',
+            'method': 'POST',
+            'request_payload': json.dumps({'log_file': log_file}),
+            'vulnerability_type': 'PATH_TRAVERSAL',
+            'attack_classification': 'Directory Traversal' if has_traversal else 'Normal File Access',
+            'blocked': False,
+            'description': f"Attempting to access file: {log_file}",
+            'system_version': 'vulnerable',
+            'recommended_action': 'Implement path sanitization'
+        })
+        
         # VULNERABLE: No path validation - allows directory traversal
-        # Attacker can use ../../../etc/passwd or similar
         log_path = os.path.join(app.config['LOG_DIR'], log_file)
         
         try:
-            # Attempt to read the file
             if os.path.exists(log_path):
                 return send_file(log_path, as_attachment=True)
             else:
@@ -474,7 +644,7 @@ def export_logs():
 def backup():
     """
     VULNERABILITY 3: File Path Injection (another endpoint)
-    Backup/restore functionality with path traversal
+    *** MONITORING: Path traversal in backup tracked ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
@@ -488,11 +658,22 @@ def backup():
         if action == 'backup':
             backup_name = request.form.get('backup_name', 'backup.db')
             
+            # *** MONITORING: Log backup operation ***
+            has_traversal = detect_path_traversal(backup_name)
+            log_to_monitoring({
+                'event_type': 'PATH_TRAVERSAL_ATTEMPT',
+                'severity': 'HIGH' if has_traversal else 'LOW',
+                'source_ip': request.remote_addr,
+                'endpoint': '/backup',
+                'request_payload': json.dumps({'backup_name': backup_name, 'action': 'backup'}),
+                'vulnerability_type': 'PATH_TRAVERSAL',
+                'system_version': 'vulnerable'
+            })
+            
             # VULNERABLE: No sanitization of backup name
             backup_path = os.path.join('backups', backup_name)
             
             try:
-                # Copy database to backup location
                 import shutil
                 shutil.copy(app.config['DATABASE'], backup_path)
                 return f"Backup created: {backup_path}"
@@ -501,6 +682,18 @@ def backup():
         
         elif action == 'restore':
             restore_file = request.form.get('restore_file', '')
+            
+            # *** MONITORING: Log restore operation ***
+            has_traversal = detect_path_traversal(restore_file)
+            log_to_monitoring({
+                'event_type': 'PATH_TRAVERSAL_ATTEMPT',
+                'severity': 'HIGH' if has_traversal else 'LOW',
+                'source_ip': request.remote_addr,
+                'endpoint': '/backup',
+                'request_payload': json.dumps({'restore_file': restore_file, 'action': 'restore'}),
+                'vulnerability_type': 'PATH_TRAVERSAL',
+                'system_version': 'vulnerable'
+            })
             
             # VULNERABLE: Path traversal in restore
             restore_path = os.path.join('backups', restore_file)
@@ -527,7 +720,7 @@ def backup():
 def firmware_restore():
     """
     VULNERABILITY 3: File Path Injection (third endpoint)
-    Firmware restore with path traversal
+    *** MONITORING: Path traversal in firmware tracked ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
@@ -537,6 +730,22 @@ def firmware_restore():
     
     if request.method == 'POST':
         firmware_path = request.form.get('firmware_path', '')
+        
+        # *** MONITORING: Log firmware access ***
+        has_traversal = detect_path_traversal(firmware_path) or firmware_path.startswith('/')
+        log_to_monitoring({
+            'event_type': 'PATH_TRAVERSAL_ATTEMPT',
+            'severity': 'CRITICAL' if has_traversal else 'LOW',
+            'source_ip': request.remote_addr,
+            'endpoint': '/firmware_restore',
+            'request_payload': json.dumps({'firmware_path': firmware_path}),
+            'vulnerability_type': 'PATH_TRAVERSAL',
+            'attack_classification': 'Absolute/Traversal Path Access',
+            'blocked': False,
+            'description': f"Attempting to read firmware from: {firmware_path}",
+            'system_version': 'vulnerable',
+            'recommended_action': 'Restrict to firmware directory only'
+        })
         
         # VULNERABLE: No path validation
         try:
@@ -556,6 +765,7 @@ def firmware_restore():
 def search_alarms_api():
     """
     API endpoint demonstrating the encoding-based SQL injection
+    *** MONITORING: SQL injection attempts tracked ***
     """
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -570,6 +780,23 @@ def search_alarms_api():
             search_term = search_term_bytes.decode(encoding.lower())
         except:
             pass
+    
+    # *** MONITORING: Detect SQL injection ***
+    if detect_sqli_pattern(search_term):
+        log_to_monitoring({
+            'event_type': 'SQL_INJECTION_ATTEMPT',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'endpoint': '/api/search_alarms',
+            'method': 'GET',
+            'request_payload': json.dumps({'q': search_term, 'encoding': encoding}),
+            'vulnerability_type': 'SQL_INJECTION',
+            'attack_classification': 'Encoding-based SQL Injection',
+            'blocked': False,
+            'description': f"SQL injection detected in search with encoding {encoding}",
+            'system_version': 'vulnerable',
+            'recommended_action': 'Use parameterized queries'
+        })
     
     db = get_db()
     cursor = db.cursor()
@@ -590,13 +817,36 @@ def search_alarms_api():
 def serve_report_template():
     with open('templates/report_template.html', 'r') as f:
         return f.read(), 200, {'Content-Type': 'text/plain'}
-
 @app.route('/secret')
 def serve_secret():
-    with open('templates/private_data.html', 'r') as f:
-        return f.read(), 200, {'Content-Type': 'text/plain'}
+    file_path = 'templates/private_data.html'
+    resolved_path = os.path.abspath(file_path)
 
+    log_to_monitoring({
+        'event_type': 'SENSITIVE_FILE_ACCESS',
+        'severity': 'CRITICAL',
+        'source_ip': request.remote_addr,
+        'endpoint': '/secret',
+        'method': 'GET',
+        'vulnerability_type': 'DATA_EXFILTRATION',
+        'attack_classification': 'Sensitive File Disclosure',
+        'blocked': False,
+        'description': 'Sensitive file accessed via /secret endpoint',
+        'system_version': 'vulnerable',
+        'requested_path': file_path,
+        'resolved_path': resolved_path,
+        'recommended_action': 'Restrict access or remove endpoint'
+    })
+
+    with open(file_path, 'r') as f:
+        return f.read(), 200, {'Content-Type': 'text/plain'}
 
 if __name__ == '__main__':
     init_db()
+    print("\n" + "="*60)
+    print("VULNERABLE SCADA APPLICATION (WITH MONITORING)")
+    print("="*60)
+    print("Application: http://localhost:5000")
+    print("Monitoring: http://localhost:5002")
+    print("="*60 + "\n")
     app.run(host='0.0.0.0', port=5000, debug=True)

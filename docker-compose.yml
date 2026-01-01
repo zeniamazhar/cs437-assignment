@@ -44,9 +44,10 @@ services:
   # Security Monitoring System
   monitoring:
     build: ./monitoring
-    container_name: scada_monitoring
     ports:
       - "5002:5002"
+    environment:
+      - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY}
     volumes:
       - monitoring-data:/app/data
     networks:
