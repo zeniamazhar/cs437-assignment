@@ -1,0 +1,17 @@
+<html>
+<body>
+    <h1>SCADA Alarm Report</h1>
+    <p>Generated: {{ generated_at }}</p>
+    <p>By: {{ generated_by }}</p>
+    
+    <h2>Alarms</h2>
+    {% for alarm in alarms %}
+    <div>
+        <strong>{{ alarm.alarm_code }}</strong> - 
+        {{ alarm.severity }} - 
+        {{ alarm.description }}
+    </div>
+    {% endfor %}
+</body>
+</html>
+        

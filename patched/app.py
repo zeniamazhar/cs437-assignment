@@ -4,7 +4,7 @@ Task 9 - CS 437 Assignment
 
 This version contains security patches for:
 1. CSRF Protection - Added CSRF tokens to all POST forms
-2. SSRF Protection - URL validation and allowlisting
+2. SSRF Protection -Removed user-supplied URLs; only predefined report sections selectable
 3. Path Traversal Protection - Input sanitization and path validation
 4. SQL Injection Protection - Parameterized queries for all encodings
 
@@ -37,16 +37,6 @@ os.makedirs('logs', exist_ok=True)
 os.makedirs('reports', exist_ok=True)
 os.makedirs('backups', exist_ok=True)
 
-# SECURITY: Allowed domains for SSRF protection
-ALLOWED_TEMPLATE_DOMAINS = [
-    'templates.example.com',
-    'cdn.example.com'
-]
-
-ALLOWED_DATA_DOMAINS = [
-    'api.example.com',
-    'data.example.com'
-]
 
 def generate_csrf_token():
     """Generate CSRF token for session"""
@@ -385,16 +375,13 @@ def silence_alarm(alarm_id):
     
     db = get_db()
     cursor = db.cursor()
-    
-    silence_until = datetime.now() + timedelta(minutes=int(duration))
-    
+    silence_until = (datetime.now() + timedelta(minutes=int(duration))).strftime('%Y-%m-%d %H:%M:%S')
     cursor.execute('''
         UPDATE alarms 
         SET silenced = ?, 
             silenced_until = ? 
         WHERE id = ?
     ''', (1, silence_until, alarm_id))
-    
     cursor.execute('''
         INSERT INTO alarm_logs (alarm_id, action, performed_by, details)
         VALUES (?, ?, ?, ?)
@@ -443,92 +430,69 @@ def escalate_alarm(alarm_id):
     db.close()
     
     return redirect(url_for('alarm_detail', alarm_id=alarm_id))
-
 @app.route('/reports', methods=['GET', 'POST'])
 def reports():
-    """
-    SECURITY PATCH: SSRF protection and sandboxed template execution
-    """
     if 'username' not in session:
         return redirect(url_for('login'))
-    
+
     if request.method == 'POST':
-        # SECURITY: Validate CSRF token
         csrf_token = request.form.get('csrf_token')
         if not validate_csrf_token(csrf_token):
             return "CSRF token validation failed", 403
-        
+
         report_type = request.form.get('report_type', 'summary')
-        data_source = request.form.get('data_source', '')
-        template_url = request.form.get('template_url', '')
-        
+        selected_sections = request.form.getlist('sections')  # List of selected sections
+
         db = get_db()
         cursor = db.cursor()
-        
         cursor.execute('SELECT * FROM alarms ORDER BY triggered_at DESC LIMIT 100')
         alarms = cursor.fetchall()
-        
+        db.close()
+
         report_data = {
             'alarms': [dict(alarm) for alarm in alarms],
-            'generated_at': datetime.now().isoformat(),
+            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'generated_by': session['username'],
-            'report_type': report_type
+            'report_type': report_type,
+            'sections': selected_sections
         }
-        
-        # SECURITY PATCH: Validate data source URL
-        if data_source:
-            is_valid, error_msg = validate_url(data_source, ALLOWED_DATA_DOMAINS)
-            if not is_valid:
-                db.close()
-                return render_template('reports.html', error=f"Invalid data source: {error_msg}")
-            
-            try:
-                # Safe to fetch with timeout
-                response = requests.get(data_source, timeout=5)
-                report_data['external_data'] = response.text[:1000]  # Limit size
-            except Exception as e:
-                report_data['external_data'] = f'Error fetching data: {str(e)}'
-        
-        # SECURITY PATCH: Validate template URL
-        if template_url:
-            is_valid, error_msg = validate_url(template_url, ALLOWED_TEMPLATE_DOMAINS)
-            if not is_valid:
-                db.close()
-                return render_template('reports.html', error=f"Invalid template URL: {error_msg}")
-            
-            try:
-                response = requests.get(template_url, timeout=5)
-                template_content = response.text
-                
-                # SECURITY PATCH: Use SandboxedEnvironment instead of regular Template
-                env = SandboxedEnvironment()
-                template = env.from_string(template_content)
-                report_html = template.render(**report_data)
-                
-                # Save report
-                report_filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-                report_path = os.path.join(app.config['REPORT_DIR'], report_filename)
-                
-                with open(report_path, 'w') as f:
-                    f.write(report_html)
-                
-                cursor.execute('''
-                    INSERT INTO reports (report_name, report_type, generated_by, file_path)
-                    VALUES (?, ?, ?, ?)
-                ''', (report_filename, report_type, session['username'], report_path))
-                
-                db.commit()
-                db.close()
-                
-                return send_file(report_path, as_attachment=True)
-                
-            except Exception as e:
-                db.close()
-                return render_template('reports.html', error=f"Error generating report: {str(e)}")
-        
-        db.close()
-        return render_template('reports.html', error='Template URL required')
-    
+
+        # Use server-side template
+        env = SandboxedEnvironment(autoescape=select_autoescape(['html']))
+        template_content = """
+        <html>
+        <body>
+            <h1>SCADA Alarm Report - {{ report_type }}</h1>
+            <p>Generated: {{ generated_at }}</p>
+            <p>By: {{ generated_by }}</p>
+            <table border="1" cellpadding="5" cellspacing="0">
+                <tr>
+                {% for sec in sections %}
+                    <th>{{ sec.replace('_', ' ').title() }}</th>
+                {% endfor %}
+                </tr>
+                {% for alarm in alarms %}
+                <tr>
+                    {% for sec in sections %}
+                        <td>{{ alarm[sec] }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </table>
+        </body>
+        </html>
+        """
+        template = env.from_string(template_content)
+        report_html = template.render(**report_data)
+
+        # Save report
+        report_filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        report_path = os.path.join(app.config['REPORT_DIR'], report_filename)
+        with open(report_path, 'w') as f:
+            f.write(report_html)
+
+        return send_file(report_path, as_attachment=True)
+
     return render_template('reports.html')
 
 @app.route('/export_logs', methods=['GET', 'POST'])
@@ -691,6 +655,11 @@ def search_alarms_api():
     db.close()
     
     return jsonify({'results': results})
+
+@app.route('/secret')
+def serve_secret():
+    with open('templates/private_data.html', 'r') as f:
+        return f.read(), 200, {'Content-Type': 'text/plain'}
 
 if __name__ == '__main__':
     init_db()
