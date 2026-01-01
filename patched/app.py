@@ -1,13 +1,14 @@
 """
-SCADA Alarm Management Console - PATCHED VERSION
+SCADA Alarm Management Console - PATCHED VERSION (WITH MONITORING)
 Task 9 - CS 437 Assignment
 
 This version contains security patches for:
 1. CSRF Protection - Added CSRF tokens to all POST forms
-2. SSRF Protection -Removed user-supplied URLs; only predefined report sections selectable
+2. SSRF Protection - Removed user-supplied URLs; only predefined report sections selectable
 3. Path Traversal Protection - Input sanitization and path validation
 4. SQL Injection Protection - Parameterized queries for all encodings
 
+*** MONITORING INTEGRATION ADDED ***
 SECURITY IMPROVEMENTS IMPLEMENTED
 """
 
@@ -37,6 +38,33 @@ os.makedirs('logs', exist_ok=True)
 os.makedirs('reports', exist_ok=True)
 os.makedirs('backups', exist_ok=True)
 
+# *** MONITORING INTEGRATION ***
+MONITORING_URL = "http://localhost:5002"
+
+def log_to_monitoring(event_data):
+    """Send security event to monitoring system"""
+    try:
+        requests.post(
+            f"{MONITORING_URL}/api/log_event",
+            json=event_data,
+            timeout=1
+        )
+    except Exception as e:
+        # Don't let monitoring failures break the app
+        pass
+
+def detect_sqli_pattern(input_str):
+    """Simple SQL injection pattern detection"""
+    if not input_str:
+        return False
+    sqli_patterns = ["'", "OR", "UNION", "SELECT", "--", ";", "/*", "*/", "DROP", "DELETE"]
+    return any(pattern.lower() in str(input_str).lower() for pattern in sqli_patterns)
+
+def detect_path_traversal(path):
+    """Detect path traversal attempts"""
+    if not path:
+        return False
+    return '..' in path or path.startswith('/') or path.startswith('\\')
 
 def generate_csrf_token():
     """Generate CSRF token for session"""
@@ -52,6 +80,21 @@ def validate_csrf_token(token):
 def inject_csrf_token():
     """Make CSRF token available to all templates"""
     return dict(csrf_token=generate_csrf_token)
+
+def sanitize_path(user_input, base_dir):
+    """SECURITY PATCH: Sanitize file paths to prevent directory traversal"""
+    # Remove any path traversal attempts
+    user_input = user_input.replace('..', '').replace('//', '/')
+    
+    # Join with base directory and resolve to absolute path
+    requested_path = os.path.abspath(os.path.join(base_dir, user_input))
+    base_path = os.path.abspath(base_dir)
+    
+    # Ensure the requested path is within the base directory
+    if not requested_path.startswith(base_path):
+        raise ValueError("Invalid path: Directory traversal detected")
+    
+    return requested_path
 
 def get_db():
     """Get database connection"""
@@ -139,52 +182,6 @@ def init_db():
     db.commit()
     db.close()
 
-def sanitize_path(user_input, base_dir):
-    """
-    SECURITY PATCH: Sanitize file paths to prevent directory traversal
-    """
-    # Remove any path traversal attempts
-    user_input = user_input.replace('..', '').replace('//', '/')
-    
-    # Join with base directory and resolve to absolute path
-    requested_path = os.path.abspath(os.path.join(base_dir, user_input))
-    base_path = os.path.abspath(base_dir)
-    
-    # Ensure the requested path is within the base directory
-    if not requested_path.startswith(base_path):
-        raise ValueError("Invalid path: Directory traversal detected")
-    
-    return requested_path
-
-def validate_url(url, allowed_domains):
-    """
-    SECURITY PATCH: Validate URLs to prevent SSRF
-    """
-    try:
-        parsed = urlparse(url)
-        
-        # Must be HTTP or HTTPS
-        if parsed.scheme not in ['http', 'https']:
-            return False, "Only HTTP/HTTPS protocols allowed"
-        
-        # Check if domain is in allowlist
-        hostname = parsed.hostname
-        if not any(hostname.endswith(domain) for domain in allowed_domains):
-            return False, f"Domain not in allowlist. Allowed: {', '.join(allowed_domains)}"
-        
-        # Prevent access to private IP ranges
-        import ipaddress
-        try:
-            ip = ipaddress.ip_address(hostname)
-            if ip.is_private or ip.is_loopback or ip.is_reserved:
-                return False, "Access to private IP ranges not allowed"
-        except ValueError:
-            pass  # Not an IP address, continue
-        
-        return True, None
-    except Exception as e:
-        return False, str(e)
-
 @app.route('/')
 def index():
     """Main dashboard"""
@@ -231,11 +228,29 @@ def index():
 def login():
     """
     SECURITY PATCH: Fixed SQL injection with parameterized queries
-    No string concatenation - immune to encoding-based attacks
+    *** MONITORING: Login attempts tracked ***
     """
     if request.method == 'POST':
         username = request.form.get('username', '')
         password = request.form.get('password', '')
+        
+        # *** MONITORING: Detect attack attempts ***
+        if detect_sqli_pattern(username):
+            log_to_monitoring({
+                'event_type': 'SQL_INJECTION_BLOCKED',
+                'severity': 'CRITICAL',
+                'source_ip': request.remote_addr,
+                'user_agent': request.headers.get('User-Agent', ''),
+                'endpoint': '/login',
+                'method': 'POST',
+                'request_payload': json.dumps({'username': username}),
+                'vulnerability_type': 'SQL_INJECTION',
+                'attack_classification': 'SQL Injection Attempt Blocked',
+                'blocked': True,
+                'description': f"SQL injection pattern blocked in login from {request.remote_addr}",
+                'system_version': 'patched',
+                'recommended_action': 'IP blocked after multiple attempts'
+            })
         
         # SECURE: Hash password
         password_hash = hashlib.sha256(password.encode()).hexdigest()
@@ -247,6 +262,24 @@ def login():
         cursor.execute('SELECT * FROM users WHERE username = ? AND password_hash = ?',
                       (username, password_hash))
         user = cursor.fetchone()
+        
+        # *** MONITORING: Log login attempt ***
+        log_to_monitoring({
+            'event_type': 'LOGIN_ATTEMPT',
+            'severity': 'INFO' if user else 'MEDIUM',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': '/login',
+            'method': 'POST',
+            'request_payload': json.dumps({'username': username}),
+            'vulnerability_type': 'BRUTE_FORCE' if not user else 'NONE',
+            'attack_classification': 'Failed Login' if not user else 'Successful Login',
+            'blocked': False,
+            'description': f"Login attempt for user '{username}' from {request.remote_addr}",
+            'system_version': 'patched',
+            'username': username,
+            'success': bool(user)
+        })
         
         if user:
             session['username'] = user['username']
@@ -325,15 +358,45 @@ def alarm_detail(alarm_id):
 def acknowledge_alarm(alarm_id):
     """
     SECURITY PATCH: CSRF protection added
-    Validates CSRF token before processing
+    *** MONITORING: CSRF attempts tracked ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
     
     # SECURITY: Validate CSRF token
     csrf_token = request.form.get('csrf_token')
+    
+    # *** MONITORING: Log CSRF validation ***
     if not validate_csrf_token(csrf_token):
+        log_to_monitoring({
+            'event_type': 'CSRF_BLOCKED',
+            'severity': 'MEDIUM',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': f'/acknowledge/{alarm_id}',
+            'method': 'POST',
+            'request_headers': json.dumps(dict(request.headers)),
+            'vulnerability_type': 'CSRF',
+            'attack_classification': 'Invalid/Missing CSRF Token',
+            'blocked': True,
+            'description': f"CSRF attack blocked from {request.remote_addr}",
+            'system_version': 'patched',
+            'recommended_action': 'Monitor this IP for further attacks'
+        })
         return "CSRF token validation failed", 403
+    
+    # Log successful CSRF validation
+    log_to_monitoring({
+        'event_type': 'CSRF_VALIDATED',
+        'severity': 'INFO',
+        'source_ip': request.remote_addr,
+        'endpoint': f'/acknowledge/{alarm_id}',
+        'method': 'POST',
+        'vulnerability_type': 'CSRF',
+        'blocked': False,
+        'description': 'Valid CSRF token - request allowed',
+        'system_version': 'patched'
+    })
     
     db = get_db()
     cursor = db.cursor()
@@ -360,15 +423,22 @@ def acknowledge_alarm(alarm_id):
 
 @app.route('/silence/<int:alarm_id>', methods=['POST'])
 def silence_alarm(alarm_id):
-    """
-    SECURITY PATCH: CSRF protection added
-    """
+    """SECURITY PATCH: CSRF protection added"""
     if 'username' not in session:
         return redirect(url_for('login'))
     
     # SECURITY: Validate CSRF token
     csrf_token = request.form.get('csrf_token')
     if not validate_csrf_token(csrf_token):
+        log_to_monitoring({
+            'event_type': 'CSRF_BLOCKED',
+            'severity': 'MEDIUM',
+            'source_ip': request.remote_addr,
+            'endpoint': f'/silence/{alarm_id}',
+            'vulnerability_type': 'CSRF',
+            'blocked': True,
+            'system_version': 'patched'
+        })
         return "CSRF token validation failed", 403
     
     duration = request.form.get('duration', 30)
@@ -394,15 +464,22 @@ def silence_alarm(alarm_id):
 
 @app.route('/escalate/<int:alarm_id>', methods=['POST'])
 def escalate_alarm(alarm_id):
-    """
-    SECURITY PATCH: CSRF protection added
-    """
+    """SECURITY PATCH: CSRF protection added"""
     if 'username' not in session:
         return redirect(url_for('login'))
     
     # SECURITY: Validate CSRF token
     csrf_token = request.form.get('csrf_token')
     if not validate_csrf_token(csrf_token):
+        log_to_monitoring({
+            'event_type': 'CSRF_BLOCKED',
+            'severity': 'MEDIUM',
+            'source_ip': request.remote_addr,
+            'endpoint': f'/escalate/{alarm_id}',
+            'vulnerability_type': 'CSRF',
+            'blocked': True,
+            'system_version': 'patched'
+        })
         return "CSRF token validation failed", 403
     
     supervisor = request.form.get('supervisor', 'default_supervisor')
@@ -430,18 +507,38 @@ def escalate_alarm(alarm_id):
     db.close()
     
     return redirect(url_for('alarm_detail', alarm_id=alarm_id))
+
 @app.route('/reports', methods=['GET', 'POST'])
 def reports():
+    """
+    SECURITY PATCH: SSRF protection - removed external URLs, server-side templates only
+    *** MONITORING: Any SSRF attempts are logged ***
+    """
     if 'username' not in session:
         return redirect(url_for('login'))
 
     if request.method == 'POST':
+        # *** MONITORING: Check if someone tries to inject URL (shouldn't be in form) ***
+        if 'template_url' in request.form:
+            log_to_monitoring({
+                'event_type': 'SSRF_ATTEMPT_BLOCKED',
+                'severity': 'HIGH',
+                'source_ip': request.remote_addr,
+                'endpoint': '/reports',
+                'request_payload': json.dumps(dict(request.form)),
+                'vulnerability_type': 'SSRF',
+                'attack_classification': 'Attempted Template URL Injection',
+                'blocked': True,
+                'description': 'Attempt to inject template_url in patched version',
+                'system_version': 'patched'
+            })
+        
         csrf_token = request.form.get('csrf_token')
         if not validate_csrf_token(csrf_token):
             return "CSRF token validation failed", 403
 
         report_type = request.form.get('report_type', 'summary')
-        selected_sections = request.form.getlist('sections')  # List of selected sections
+        selected_sections = request.form.getlist('sections')
 
         db = get_db()
         cursor = db.cursor()
@@ -457,7 +554,7 @@ def reports():
             'sections': selected_sections
         }
 
-        # Use server-side template
+        # SECURITY PATCH: Use server-side template only (no external URLs)
         env = SandboxedEnvironment(autoescape=select_autoescape(['html']))
         template_content = """
         <html>
@@ -499,6 +596,7 @@ def reports():
 def export_logs():
     """
     SECURITY PATCH: Path traversal protection
+    *** MONITORING: Path traversal attempts tracked ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
@@ -510,6 +608,24 @@ def export_logs():
             return "CSRF token validation failed", 403
         
         log_file = request.form.get('log_file', 'alarm.log')
+        
+        # *** MONITORING: Log any traversal attempts ***
+        if detect_path_traversal(log_file):
+            log_to_monitoring({
+                'event_type': 'PATH_TRAVERSAL_BLOCKED',
+                'severity': 'HIGH',
+                'source_ip': request.remote_addr,
+                'user_agent': request.headers.get('User-Agent', ''),
+                'endpoint': '/export_logs',
+                'method': 'POST',
+                'request_payload': json.dumps({'log_file': log_file}),
+                'vulnerability_type': 'PATH_TRAVERSAL',
+                'attack_classification': 'Directory Traversal Blocked',
+                'blocked': True,
+                'description': f"Path traversal attempt blocked: {log_file}",
+                'system_version': 'patched',
+                'recommended_action': 'Monitor IP for further attacks'
+            })
         
         try:
             # SECURITY PATCH: Sanitize path to prevent directory traversal
@@ -534,9 +650,7 @@ def export_logs():
 
 @app.route('/backup', methods=['GET', 'POST'])
 def backup():
-    """
-    SECURITY PATCH: Path traversal protection for backup operations
-    """
+    """SECURITY PATCH: Path traversal protection for backup operations"""
     if 'username' not in session:
         return redirect(url_for('login'))
     
@@ -554,8 +668,20 @@ def backup():
         if action == 'backup':
             backup_name = request.form.get('backup_name', 'backup.db')
             
+            # *** MONITORING: Log traversal attempts ***
+            if detect_path_traversal(backup_name):
+                log_to_monitoring({
+                    'event_type': 'PATH_TRAVERSAL_BLOCKED',
+                    'severity': 'HIGH',
+                    'source_ip': request.remote_addr,
+                    'endpoint': '/backup',
+                    'request_payload': json.dumps({'backup_name': backup_name}),
+                    'vulnerability_type': 'PATH_TRAVERSAL',
+                    'blocked': True,
+                    'system_version': 'patched'
+                })
+            
             # SECURITY PATCH: Sanitize backup name
-            # Only allow alphanumeric, dots, dashes, underscores
             if not re.match(r'^[a-zA-Z0-9._-]+\.db$', backup_name):
                 return "Invalid backup name. Use only letters, numbers, and .db extension", 400
             
@@ -569,6 +695,19 @@ def backup():
         
         elif action == 'restore':
             restore_file = request.form.get('restore_file', '')
+            
+            # *** MONITORING ***
+            if detect_path_traversal(restore_file):
+                log_to_monitoring({
+                    'event_type': 'PATH_TRAVERSAL_BLOCKED',
+                    'severity': 'HIGH',
+                    'source_ip': request.remote_addr,
+                    'endpoint': '/backup',
+                    'request_payload': json.dumps({'restore_file': restore_file}),
+                    'vulnerability_type': 'PATH_TRAVERSAL',
+                    'blocked': True,
+                    'system_version': 'patched'
+                })
             
             try:
                 # SECURITY PATCH: Sanitize restore path
@@ -595,9 +734,7 @@ def backup():
 
 @app.route('/firmware_restore', methods=['GET', 'POST'])
 def firmware_restore():
-    """
-    SECURITY PATCH: Path traversal protection for firmware restore
-    """
+    """SECURITY PATCH: Path traversal protection for firmware restore"""
     if 'username' not in session:
         return redirect(url_for('login'))
     
@@ -611,6 +748,21 @@ def firmware_restore():
             return "CSRF token validation failed", 403
         
         firmware_path = request.form.get('firmware_path', '')
+        
+        # *** MONITORING: Log traversal attempts ***
+        if detect_path_traversal(firmware_path) or firmware_path.startswith('/'):
+            log_to_monitoring({
+                'event_type': 'PATH_TRAVERSAL_BLOCKED',
+                'severity': 'CRITICAL',
+                'source_ip': request.remote_addr,
+                'endpoint': '/firmware_restore',
+                'request_payload': json.dumps({'firmware_path': firmware_path}),
+                'vulnerability_type': 'PATH_TRAVERSAL',
+                'attack_classification': 'Absolute/Traversal Path Blocked',
+                'blocked': True,
+                'description': f"Dangerous path access blocked: {firmware_path}",
+                'system_version': 'patched'
+            })
         
         try:
             # SECURITY PATCH: Only allow firmware from specific directory
@@ -635,11 +787,28 @@ def firmware_restore():
 def search_alarms_api():
     """
     SECURITY PATCH: Parameterized queries prevent SQL injection regardless of encoding
+    *** MONITORING: SQL injection attempts tracked ***
     """
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
     search_term = request.args.get('q', '')
+    
+    # *** MONITORING: Detect SQL injection attempts ***
+    if detect_sqli_pattern(search_term):
+        log_to_monitoring({
+            'event_type': 'SQL_INJECTION_BLOCKED',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'endpoint': '/api/search_alarms',
+            'method': 'GET',
+            'request_payload': json.dumps({'q': search_term}),
+            'vulnerability_type': 'SQL_INJECTION',
+            'attack_classification': 'SQL Injection Blocked by Parameterization',
+            'blocked': True,
+            'description': f"SQL injection pattern blocked in search",
+            'system_version': 'patched'
+        })
     
     db = get_db()
     cursor = db.cursor()
@@ -663,4 +832,10 @@ def serve_secret():
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=5001, debug=False)  # Different port, debug off
+    print("\n" + "="*60)
+    print("PATCHED SCADA APPLICATION (WITH MONITORING)")
+    print("="*60)
+    print("Application: http://localhost:5001")
+    print("Monitoring: http://localhost:5002")
+    print("="*60 + "\n")
+    app.run(host='0.0.0.0', port=5001, debug=False)
