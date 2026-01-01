@@ -15,6 +15,7 @@
     {% endif %}
     
     <form method="POST" action="{{ url_for('firmware_restore') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <div class="form-group">
             <label for="firmware_path">Firmware File Path</label>
             <input type="text" id="firmware_path" name="firmware_path" 
