@@ -7,6 +7,7 @@
     <h2>Export System Logs</h2>
     
     <form method="POST" action="{{ url_for('export_logs') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <div class="form-group">
             <label for="log_file">Select Log File</label>
             <select id="log_file" name="log_file">
