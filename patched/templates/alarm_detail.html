@@ -50,12 +50,14 @@
         <!-- VULNERABILITY: No CSRF protection on these forms -->
         {% if not alarm.acknowledged %}
         <form method="POST" action="{{ url_for('acknowledge_alarm', alarm_id=alarm.id) }}" style="display: inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <button type="submit" class="btn btn-success">✅ Acknowledge Alarm</button>
         </form>
         {% endif %}
         
         {% if not alarm.silenced %}
         <form method="POST" action="{{ url_for('silence_alarm', alarm_id=alarm.id) }}" style="display: inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <select name="duration" style="padding: 0.7rem; border: 1px solid #ddd; border-radius: 5px;">
                 <option value="30">30 minutes</option>
                 <option value="60">1 hour</option>
@@ -68,6 +70,7 @@
         
         {% if not alarm.escalated %}
         <form method="POST" action="{{ url_for('escalate_alarm', alarm_id=alarm.id) }}" style="display: inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <input type="text" name="supervisor" placeholder="Supervisor name" required 
                    style="padding: 0.7rem; border: 1px solid #ddd; border-radius: 5px;">
             <button type="submit" class="btn btn-danger">⬆️ Escalate to Supervisor</button>

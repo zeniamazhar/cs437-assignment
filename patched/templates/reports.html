@@ -9,38 +9,54 @@
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
-    
+    <style>
+        input[type="checkbox"] {
+            vertical-align: middle;
+            margin-right: 5px; /* optional spacing */
+        }
+    </style>
     <form method="POST" action="{{ url_for('reports') }}">
-        <div class="form-group">
-            <label for="report_type">Report Type</label>
-            <select id="report_type" name="report_type" required>
-                <option value="summary">Alarm Summary</option>
-                <option value="detailed">Detailed Analysis</option>
-                <option value="compliance">Compliance Report</option>
-                <option value="performance">Performance Metrics</option>
-            </select>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="form-group">
+
+        <label for="report_type">Report Type</label>
+        <select id="report_type" name="report_type" required>
+            <option value="summary">Alarm Summary</option>
+            <option value="detailed">Detailed Analysis</option>
+            <option value="compliance">Compliance Report</option>
+            <option value="performance">Performance Metrics</option>
+        </select>
+    </div>
+
+    <div class="form-group"> 
+        <label>Include in Report:</label>
+        <div>
+            <label><input type="checkbox" name="sections" value="alarm_code" checked>  <span>Alarm Code</span></label>
         </div>
-        
-        <div class="form-group">
-            <label for="data_source">External Data Source URL (Optional)</label>
-            <input type="url" id="data_source" name="data_source" 
-                   placeholder="https://api.example.com/sensor-data">
-            <small style="color: #666; display: block; margin-top: 0.5rem;">
-                Fetch additional data from external API for enrichment
-            </small>
+        <div>
+            <label><input type="checkbox" name="sections" value="severity" checked>Severity</label>
         </div>
-        
-        <div class="form-group">
-            <label for="template_url">Report Template URL (Required)</label>
-            <input type="url" id="template_url" name="template_url" 
-                   placeholder="https://example.com/templates/report.html" required>
-            <small style="color: #666; display: block; margin-top: 0.5rem;">
-                URL to Jinja2 template for report generation
-            </small>
+        <div>
+            <label><input type="checkbox" name="sections" value="description" checked> Description</label>
         </div>
-        
-        <button type="submit" class="btn btn-primary">Generate Report</button>
-    </form>
+        <div>
+            <label><input type="checkbox" name="sections" value="location" checked> Location</label>
+        </div>
+        <div>
+            <label><input type="checkbox" name="sections" value="acknowledged"> Acknowledged</label>
+        </div>
+        <div>
+            <label><input type="checkbox" name="sections" value="silenced"> Silenced</label>
+        </div>
+        <div>
+            <label><input type="checkbox" name="sections" value="escalated"> Escalated</label>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Generate Report</button>
+</form>
+
 </div>
 
 <div class="card" style="background: #fff3cd; border: 2px solid #ffc107;">

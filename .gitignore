@@ -1,4 +1,9 @@
+# Python
+venv/
 __pycache__/
-.env
-node_modules/
-*.log
+*.pyc
+
+# Flask / SCADA
+*.db
+logs/
+reports/
