@@ -39,7 +39,7 @@ os.makedirs('reports', exist_ok=True)
 os.makedirs('backups', exist_ok=True)
 
 # *** MONITORING INTEGRATION ***
-MONITORING_URL = "http://monitoring:5002"
+MONITORING_URL = "http://scada_monitoring:5002"
 
 def log_to_monitoring(event_data):
     """Send security event to monitoring system"""
@@ -52,6 +52,45 @@ def log_to_monitoring(event_data):
     except Exception as e:
         # Don't let monitoring failures break the app
         pass
+
+def scan_file_with_virustotal(file_path):
+    """
+    Scans a file hash against VirusTotal API to check for malware.
+    """
+    api_key = os.environ.get('VIRUSTOTAL_API_KEY')
+    if not api_key:
+        print("Warning: VIRUSTOTAL_API_KEY not found")
+        return None 
+
+    try:
+        # 1. Calculate SHA-256 Hash
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        file_hash = sha256_hash.hexdigest()
+
+        # 2. Check Hash against VirusTotal API
+        url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
+        headers = {"x-apikey": api_key}
+        
+        response = requests.get(url, headers=headers, timeout=5)
+        
+        if response.status_code == 200:
+            stats = response.json()['data']['attributes']['last_analysis_stats']
+            malicious_count = stats['malicious']
+            
+            if malicious_count > 0:
+                return f"MALWARE DETECTED! ({malicious_count} engines flagged this file)"
+            else:
+                return "Clean"
+        elif response.status_code == 404:
+            return "Unknown File (Not in VirusTotal database)"
+            
+    except Exception as e:
+        return f"Scan Error: {str(e)}"
+    
+    return None
 
 def detect_sqli_pattern(input_str):
     """Simple SQL injection pattern detection"""
