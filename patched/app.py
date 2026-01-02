@@ -39,7 +39,7 @@ os.makedirs('reports', exist_ok=True)
 os.makedirs('backups', exist_ok=True)
 
 # *** MONITORING INTEGRATION ***
-MONITORING_URL = "http://localhost:5002"
+MONITORING_URL = "http://monitoring:5002"
 
 def log_to_monitoring(event_data):
     """Send security event to monitoring system"""
