@@ -210,6 +210,11 @@ def login():
         # Check for special encoding in request
         encoding = request.headers.get('Content-Encoding', 'utf-8')
         
+        # SECURITY FEATURE: Block ASCII SQLi attempts (only allow encoded SQLi)
+        if encoding.lower() == 'utf-8':
+            if detect_sqli_pattern(username):
+                return render_template('login.html', error='Invalid input detected')
+        
         # If UTF-16 or UTF-7 encoded, decode it
         if encoding.lower() in ['utf-16', 'utf-7', 'utf-16le', 'utf-16be']:
             try:
@@ -238,9 +243,9 @@ def login():
                 'user_agent': request.headers.get('User-Agent', ''),
                 'endpoint': '/login',
                 'method': 'POST',
-                'request_payload': json.dumps({'username': username}),
+                'payload': json.dumps({'username': username}),
                 'vulnerability_type': 'BRUTE_FORCE' if not user else 'NONE',
-                'attack_classification': 'Failed Login' if not user else 'Successful Login',
+                'classification': 'Failed Login' if not user else 'Successful Login',
                 'blocked': False,
                 'description': f"Login attempt for user '{username}' from {request.remote_addr}",
                 'system_version': 'vulnerable',
@@ -257,9 +262,9 @@ def login():
                     'user_agent': request.headers.get('User-Agent', ''),
                     'endpoint': '/login',
                     'method': 'POST',
-                    'request_payload': json.dumps({'username': username, 'encoding': encoding}),
+                    'payload': json.dumps({'username': username, 'encoding': encoding}),
                     'vulnerability_type': 'SQL_INJECTION',
-                    'attack_classification': 'Encoding-based SQL Injection',
+                    'classification': 'SQLi-Encoded',
                     'blocked': False,
                     'description': f"SQL injection pattern detected in username with encoding {encoding}",
                     'system_version': 'vulnerable',
@@ -773,6 +778,11 @@ def search_alarms_api():
     search_term = request.args.get('q', '')
     encoding = request.headers.get('Content-Encoding', 'utf-8')
     
+    # SECURITY FEATURE: Block ASCII SQLi attempts (only allow encoded SQLi)
+    if encoding.lower() == 'utf-8':
+        if detect_sqli_pattern(search_term):
+            return jsonify({'error': 'Invalid search term'}), 400
+    
     # Check for special encoding
     if encoding.lower() in ['utf-16', 'utf-7', 'utf-16le', 'utf-16be']:
         try:
@@ -789,9 +799,9 @@ def search_alarms_api():
             'source_ip': request.remote_addr,
             'endpoint': '/api/search_alarms',
             'method': 'GET',
-            'request_payload': json.dumps({'q': search_term, 'encoding': encoding}),
+            'payload': json.dumps({'q': search_term, 'encoding': encoding}),
             'vulnerability_type': 'SQL_INJECTION',
-            'attack_classification': 'Encoding-based SQL Injection',
+            'classification': 'SQLi-Encoded',
             'blocked': False,
             'description': f"SQL injection detected in search with encoding {encoding}",
             'system_version': 'vulnerable',

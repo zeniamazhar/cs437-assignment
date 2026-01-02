@@ -234,8 +234,20 @@ def login():
         username = request.form.get('username', '')
         password = request.form.get('password', '')
         
+        # Check for special encoding
+        encoding = request.headers.get('Content-Encoding', 'utf-8')
+        
+        username_for_monitoring = username
+        # If UTF-16 or UTF-7 encoded, decode it for monitoring visibility
+        if encoding.lower() in ['utf-16', 'utf-7', 'utf-16le', 'utf-16be']:
+            try:
+                username_bytes = username.encode('latin-1')
+                username_for_monitoring = username_bytes.decode(encoding.lower())
+            except:
+                pass
+
         # *** MONITORING: Detect attack attempts ***
-        if detect_sqli_pattern(username):
+        if detect_sqli_pattern(username_for_monitoring):
             log_to_monitoring({
                 'event_type': 'SQL_INJECTION_BLOCKED',
                 'severity': 'CRITICAL',
@@ -243,13 +255,13 @@ def login():
                 'user_agent': request.headers.get('User-Agent', ''),
                 'endpoint': '/login',
                 'method': 'POST',
-                'request_payload': json.dumps({'username': username}),
+                'payload': json.dumps({'username': username_for_monitoring, 'encoding': encoding}),
                 'vulnerability_type': 'SQL_INJECTION',
-                'attack_classification': 'SQL Injection Attempt Blocked',
+                'classification': 'SQLi-Encoded',
                 'blocked': True,
-                'description': f"SQL injection pattern blocked in login from {request.remote_addr}",
+                'description': f"SQL injection attempt with {encoding} blocked in login",
                 'system_version': 'patched',
-                'recommended_action': 'IP blocked after multiple attempts'
+                'recommended_action': 'IP monitored for further attacks'
             })
         
         # SECURE: Hash password
@@ -271,9 +283,9 @@ def login():
             'user_agent': request.headers.get('User-Agent', ''),
             'endpoint': '/login',
             'method': 'POST',
-            'request_payload': json.dumps({'username': username}),
+            'payload': json.dumps({'username': username}),
             'vulnerability_type': 'BRUTE_FORCE' if not user else 'NONE',
-            'attack_classification': 'Failed Login' if not user else 'Successful Login',
+            'classification': 'Failed Login' if not user else 'Successful Login',
             'blocked': False,
             'description': f"Login attempt for user '{username}' from {request.remote_addr}",
             'system_version': 'patched',
@@ -375,9 +387,9 @@ def acknowledge_alarm(alarm_id):
             'user_agent': request.headers.get('User-Agent', ''),
             'endpoint': f'/acknowledge/{alarm_id}',
             'method': 'POST',
-            'request_headers': json.dumps(dict(request.headers)),
+            'payload': json.dumps(dict(request.headers)),
             'vulnerability_type': 'CSRF',
-            'attack_classification': 'Invalid/Missing CSRF Token',
+            'classification': 'Invalid/Missing CSRF Token',
             'blocked': True,
             'description': f"CSRF attack blocked from {request.remote_addr}",
             'system_version': 'patched',
@@ -525,9 +537,9 @@ def reports():
                 'severity': 'HIGH',
                 'source_ip': request.remote_addr,
                 'endpoint': '/reports',
-                'request_payload': json.dumps(dict(request.form)),
+                'payload': json.dumps(dict(request.form)),
                 'vulnerability_type': 'SSRF',
-                'attack_classification': 'Attempted Template URL Injection',
+                'classification': 'Attempted Template URL Injection',
                 'blocked': True,
                 'description': 'Attempt to inject template_url in patched version',
                 'system_version': 'patched'
@@ -618,9 +630,9 @@ def export_logs():
                 'user_agent': request.headers.get('User-Agent', ''),
                 'endpoint': '/export_logs',
                 'method': 'POST',
-                'request_payload': json.dumps({'log_file': log_file}),
+                'payload': json.dumps({'log_file': log_file}),
                 'vulnerability_type': 'PATH_TRAVERSAL',
-                'attack_classification': 'Directory Traversal Blocked',
+                'classification': 'Directory Traversal Blocked',
                 'blocked': True,
                 'description': f"Path traversal attempt blocked: {log_file}",
                 'system_version': 'patched',
@@ -675,7 +687,7 @@ def backup():
                     'severity': 'HIGH',
                     'source_ip': request.remote_addr,
                     'endpoint': '/backup',
-                    'request_payload': json.dumps({'backup_name': backup_name}),
+                    'payload': json.dumps({'backup_name': backup_name}),
                     'vulnerability_type': 'PATH_TRAVERSAL',
                     'blocked': True,
                     'system_version': 'patched'
@@ -703,7 +715,7 @@ def backup():
                     'severity': 'HIGH',
                     'source_ip': request.remote_addr,
                     'endpoint': '/backup',
-                    'request_payload': json.dumps({'restore_file': restore_file}),
+                    'payload': json.dumps({'restore_file': restore_file}),
                     'vulnerability_type': 'PATH_TRAVERSAL',
                     'blocked': True,
                     'system_version': 'patched'
@@ -756,9 +768,9 @@ def firmware_restore():
                 'severity': 'CRITICAL',
                 'source_ip': request.remote_addr,
                 'endpoint': '/firmware_restore',
-                'request_payload': json.dumps({'firmware_path': firmware_path}),
+                'payload': json.dumps({'firmware_path': firmware_path}),
                 'vulnerability_type': 'PATH_TRAVERSAL',
-                'attack_classification': 'Absolute/Traversal Path Blocked',
+                'classification': 'Absolute/Traversal Path Blocked',
                 'blocked': True,
                 'description': f"Dangerous path access blocked: {firmware_path}",
                 'system_version': 'patched'
@@ -794,19 +806,30 @@ def search_alarms_api():
     
     search_term = request.args.get('q', '')
     
+    encoding = request.headers.get('Content-Encoding', 'utf-8')
+    
+    search_term_for_monitoring = search_term
+    # Check for special encoding
+    if encoding.lower() in ['utf-16', 'utf-7', 'utf-16le', 'utf-16be']:
+        try:
+            search_term_bytes = search_term.encode('latin-1')
+            search_term_for_monitoring = search_term_bytes.decode(encoding.lower())
+        except:
+            pass
+            
     # *** MONITORING: Detect SQL injection attempts ***
-    if detect_sqli_pattern(search_term):
+    if detect_sqli_pattern(search_term_for_monitoring):
         log_to_monitoring({
             'event_type': 'SQL_INJECTION_BLOCKED',
             'severity': 'CRITICAL',
             'source_ip': request.remote_addr,
             'endpoint': '/api/search_alarms',
             'method': 'GET',
-            'request_payload': json.dumps({'q': search_term}),
+            'payload': json.dumps({'q': search_term_for_monitoring, 'encoding': encoding}),
             'vulnerability_type': 'SQL_INJECTION',
-            'attack_classification': 'SQL Injection Blocked by Parameterization',
+            'classification': 'SQLi-Encoded',
             'blocked': True,
-            'description': f"SQL injection pattern blocked in search",
+            'description': f"SQL injection attempt with {encoding} blocked in search",
             'system_version': 'patched'
         })
     
