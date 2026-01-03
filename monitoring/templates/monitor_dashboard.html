@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Security Monitoring Dashboard - Admin Actions</title>
+    <title>Security Monitoring Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -31,7 +31,7 @@
         }
         
         .container {
-            max-width: 1600px;
+            max-width: 1800px;
             margin: 2rem auto;
             padding: 0 2rem;
         }
@@ -94,11 +94,12 @@
             width: 100%;
             border-collapse: collapse;
             margin-top: 1rem;
+            font-size: 0.9rem;
         }
         
         .events-table th,
         .events-table td {
-            padding: 1rem;
+            padding: 0.8rem;
             text-align: left;
             border-bottom: 1px solid rgba(255,255,255,0.1);
         }
@@ -112,10 +113,11 @@
         .events-table tr:hover { background: rgba(102, 126, 234, 0.1); }
         
         .badge {
-            padding: 0.4rem 0.8rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
+            padding: 0.3rem 0.6rem;
+            border-radius: 15px;
+            font-size: 0.75rem;
             font-weight: 600;
+            white-space: nowrap;
         }
         
         .badge.critical { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
@@ -126,13 +128,13 @@
         .badge.vulnerable { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
         
         .btn {
-            padding: 0.6rem 1.2rem;
+            padding: 0.5rem 1rem;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             transition: all 0.3s;
-            margin: 0.25rem;
+            margin: 0.2rem;
         }
         
         .btn-primary { background: #667eea; color: white; }
@@ -180,9 +182,11 @@
             top: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.8);
             align-items: center;
             justify-content: center;
+            overflow-y: auto;
+            padding: 2rem;
         }
         
         .modal.show { display: flex; }
@@ -191,8 +195,10 @@
             background: #16213e;
             padding: 2rem;
             border-radius: 10px;
-            max-width: 600px;
-            width: 90%;
+            max-width: 900px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
         }
         
         .modal-header {
@@ -202,7 +208,7 @@
             margin-bottom: 1.5rem;
         }
         
-        .modal-header h3 { color: #667eea; }
+        .modal-header h3 { color: #667eea; font-size: 1.5rem; }
         
         .close {
             font-size: 2rem;
@@ -219,6 +225,18 @@
             font-family: 'Courier New', monospace;
             font-size: 0.85rem;
             color: #f39c12;
+        }
+        
+        .detail-section {
+            background: #0f3460;
+            padding: 1rem;
+            border-radius: 5px;
+            margin-bottom: 1rem;
+        }
+        
+        .detail-section h4 {
+            color: #667eea;
+            margin-bottom: 0.5rem;
         }
         
         .alert {
@@ -242,13 +260,64 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
         }
+        
+        .recommended-actions {
+            background: #1a2744;
+            padding: 1rem;
+            border-radius: 5px;
+            border-left: 4px solid #f39c12;
+        }
+        
+        .action-item {
+            margin-bottom: 0.5rem;
+            color: #bbb;
+            font-size: 0.9rem;
+        }
+        
+        .action-item strong {
+            color: #f39c12;
+        }
+        
+        /* NEW: Compact recommended actions in table */
+        .actions-mini {
+            font-size: 0.75rem;
+            color: #bbb;
+            max-width: 250px;
+        }
+        
+        .actions-mini strong {
+            color: #f39c12;
+            display: block;
+            margin-bottom: 0.2rem;
+        }
+        
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+        
+        .tooltip:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 0.5rem;
+            background: #0a0a0a;
+            color: #eee;
+            border-radius: 5px;
+            white-space: nowrap;
+            z-index: 100;
+            font-size: 0.85rem;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <div>
-            <h1>🔍 SCADA Security Monitoring</h1>
-            <p>Real-time attack detection and admin response system</p>
+            <h1>🔍 SCADA Security Monitoring - FINAL</h1>
+            <p>Proper brute force detection • Fixed schema • Visible recommendations</p>
         </div>
         <div class="user-info">
             <p>Admin Panel</p>
@@ -330,7 +399,7 @@
                             <th>Severity</th>
                             <th>Endpoint</th>
                             <th>Status</th>
-                            <th>Classification</th>
+                            <th>Recommended Action</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -427,21 +496,13 @@
         async function loadStatistics() {
             try {
                 const response = await fetch('/api/statistics');
-                
-                // Check content type BEFORE trying to parse
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
-                    console.log('Not authenticated - redirecting to login');
                     window.location.href = '/login';
                     return;
                 }
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
                 const data = await response.json();
-                
                 const totalEvents = Object.values(data.vulnerabilities || {}).reduce((sum, v) => sum + v.total, 0);
                 const criticalEvents = data.severity['CRITICAL'] || 0;
                 
@@ -452,28 +513,19 @@
                 
             } catch (error) {
                 console.error('Error loading statistics:', error);
-                // Don't redirect on every error, could be network issue
             }
         }
         
         async function loadEvents() {
             try {
                 const response = await fetch('/api/events');
-                
-                // Check content type BEFORE trying to parse
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
-                    console.log('Not authenticated - redirecting to login');
                     window.location.href = '/login';
                     return;
                 }
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
                 const events = await response.json();
-                
                 const tbody = document.getElementById('eventsTableBody');
                 tbody.innerHTML = '';
                 
@@ -487,16 +539,35 @@
                         ? '<span class="badge vulnerable">VULNERABLE</span>' 
                         : '<span class="badge blocked">PATCHED</span>';
                     
+                    // Parse recommended actions
+                    let recommendedHTML = '<span class="code">N/A</span>';
+                    try {
+                        const actions = typeof event.recommended_action === 'string' 
+                            ? JSON.parse(event.recommended_action) 
+                            : event.recommended_action || {};
+                        
+                        if (actions.immediate) {
+                            recommendedHTML = `
+                                <div class="actions-mini tooltip" data-tooltip="Click Details for full recommendations">
+                                    <strong>⚡ Immediate:</strong>
+                                    ${actions.immediate.substring(0, 40)}${actions.immediate.length > 40 ? '...' : ''}
+                                </div>
+                            `;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing actions:', e);
+                    }
+                    
                     const row = document.createElement('tr');
                     row.innerHTML = `
-                        <td>${new Date(event.timestamp).toLocaleString()}</td>
+                        <td style="font-size: 0.85rem;">${new Date(event.timestamp).toLocaleString()}</td>
                         <td><span class="code">${event.source_ip || 'N/A'}</span></td>
                         <td>${systemBadge}</td>
                         <td><span class="code">${event.vulnerability_type || 'N/A'}</span></td>
                         <td><span class="badge ${event.severity.toLowerCase()}">${event.severity}</span></td>
-                        <td><span class="code">${event.endpoint}</span></td>
+                        <td><span class="code" style="font-size: 0.8rem;">${event.endpoint}</span></td>
                         <td><span class="badge ${event.blocked ? 'blocked' : 'vulnerable'}">${event.blocked ? 'BLOCKED' : 'ALLOWED'}</span></td>
-                        <td>${event.attack_classification || 'N/A'}</td>
+                        <td>${recommendedHTML}</td>
                         <td>
                             <button class="btn btn-primary" onclick="showEventDetails(${event.id})">Details</button>
                             <button class="btn btn-warning" onclick="markFalsePositive(${event.id})">False+</button>
@@ -508,28 +579,19 @@
                 
             } catch (error) {
                 console.error('Error loading events:', error);
-                // Don't redirect on every error
             }
         }
         
         async function loadBlockedIPs() {
             try {
                 const response = await fetch('/api/blocked_ips');
-                
-                // Check content type BEFORE trying to parse
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
-                    console.log('Not authenticated - redirecting to login');
                     window.location.href = '/login';
                     return;
                 }
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
                 const ips = await response.json();
-                
                 const tbody = document.getElementById('blockedTableBody');
                 tbody.innerHTML = '';
                 
@@ -562,21 +624,13 @@
         async function loadActions() {
             try {
                 const response = await fetch('/api/response_actions');
-                
-                // Check content type BEFORE trying to parse
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
-                    console.log('Not authenticated - redirecting to login');
                     window.location.href = '/login';
                     return;
                 }
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
                 const actions = await response.json();
-                
                 const tbody = document.getElementById('actionsTableBody');
                 tbody.innerHTML = '';
                 
@@ -609,21 +663,13 @@
         async function loadRules() {
             try {
                 const response = await fetch('/api/alert_rules');
-                
-                // Check content type BEFORE trying to parse
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
-                    console.log('Not authenticated - redirecting to login');
                     window.location.href = '/login';
                     return;
                 }
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
                 const rules = await response.json();
-                
                 const tbody = document.getElementById('rulesTableBody');
                 tbody.innerHTML = '';
                 
@@ -648,6 +694,90 @@
                 
             } catch (error) {
                 console.error('Error loading rules:', error);
+            }
+        }
+        
+        async function showEventDetails(eventId) {
+            try {
+                const response = await fetch(`/api/event_details/${eventId}`);
+                const event = await response.json();
+                
+                if (event.error) {
+                    alert('Error loading event details: ' + event.error);
+                    return;
+                }
+                
+                let recommendedActions = {};
+                try {
+                    recommendedActions = typeof event.recommended_action === 'string' 
+                        ? JSON.parse(event.recommended_action) 
+                        : event.recommended_actions || {};
+                } catch (e) {
+                    console.error('Error parsing recommended actions:', e);
+                }
+                
+                const detailsHTML = `
+                    <div class="detail-section">
+                        <h4>Basic Information</h4>
+                        <p><strong>Event ID:</strong> ${event.id}</p>
+                        <p><strong>Timestamp:</strong> ${new Date(event.timestamp).toLocaleString()}</p>
+                        <p><strong>Source IP:</strong> <span class="code">${event.source_ip}</span></p>
+                        <p><strong>System:</strong> <span class="badge ${event.system_version === 'vulnerable' ? 'vulnerable' : 'blocked'}">${event.system_version}</span></p>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h4>Attack Details</h4>
+                        <p><strong>Vulnerability Type:</strong> <span class="code">${event.vulnerability_type}</span></p>
+                        <p><strong>Severity:</strong> <span class="badge ${event.severity.toLowerCase()}">${event.severity}</span></p>
+                        <p><strong>Classification:</strong> ${event.attack_classification || 'N/A'}</p>
+                        <p><strong>Endpoint:</strong> <span class="code">${event.endpoint}</span></p>
+                        <p><strong>Method:</strong> <span class="code">${event.method}</span></p>
+                        <p><strong>Status:</strong> <span class="badge ${event.blocked ? 'blocked' : 'vulnerable'}">${event.blocked ? 'BLOCKED' : 'ALLOWED'}</span></p>
+                    </div>
+                    
+                    ${event.description ? `
+                    <div class="detail-section">
+                        <h4>Description</h4>
+                        <p>${event.description}</p>
+                    </div>
+                    ` : ''}
+                    
+                    ${event.request_payload ? `
+                    <div class="detail-section">
+                        <h4>Request Payload</h4>
+                        <pre class="code" style="white-space: pre-wrap; word-wrap: break-word; padding: 1rem; background: #0a0a0a;">${
+                            typeof event.request_payload === 'object' 
+                                ? JSON.stringify(event.request_payload, null, 2)
+                                : event.request_payload
+                        }</pre>
+                    </div>
+                    ` : ''}
+                    
+                    ${Object.keys(recommendedActions).length > 0 ? `
+                    <div class="recommended-actions">
+                        <h4 style="color: #f39c12; margin-bottom: 1rem;">⚠️ Recommended Actions</h4>
+                        ${recommendedActions.immediate ? `<div class="action-item"><strong>Immediate:</strong> ${recommendedActions.immediate}</div>` : ''}
+                        ${recommendedActions.short_term ? `<div class="action-item"><strong>Short-term:</strong> ${recommendedActions.short_term}</div>` : ''}
+                        ${recommendedActions.long_term ? `<div class="action-item"><strong>Long-term:</strong> ${recommendedActions.long_term}</div>` : ''}
+                        ${recommendedActions.detection ? `<div class="action-item"><strong>Detection:</strong> ${recommendedActions.detection}</div>` : ''}
+                        ${recommendedActions.prevention ? `<div class="action-item"><strong>Prevention:</strong> ${recommendedActions.prevention}</div>` : ''}
+                    </div>
+                    ` : ''}
+                    
+                    ${event.false_positive ? `
+                    <div class="alert alert-success">
+                        <strong>✓ Marked as False Positive</strong>
+                        ${event.notes ? `<p style="margin-top: 0.5rem;">${event.notes}</p>` : ''}
+                    </div>
+                    ` : ''}
+                `;
+                
+                document.getElementById('eventDetails').innerHTML = detailsHTML;
+                document.getElementById('eventModal').classList.add('show');
+                
+            } catch (error) {
+                console.error('Error loading event details:', error);
+                alert('Error loading event details');
             }
         }
         
@@ -718,7 +848,7 @@
         
         async function markFalsePositive(eventId) {
             const notes = prompt('Enter notes for false positive:');
-            if (!notes) return;
+            if (notes === null) return;
             
             try {
                 const response = await fetch('/api/take_action', {
@@ -732,8 +862,13 @@
                 });
                 
                 const result = await response.json();
-                alert(result.message || 'Marked as false positive');
-                loadEvents();
+                
+                if (result.status === 'success') {
+                    alert(result.message || 'Marked as false positive');
+                    loadEvents();
+                } else {
+                    alert('Error: ' + result.message);
+                }
             } catch (error) {
                 alert('Error: ' + error.message);
             }
@@ -779,11 +914,6 @@
             } catch (error) {
                 alert('Error: ' + error.message);
             }
-        }
-        
-        function showEventDetails(eventId) {
-            // Implement detailed event view
-            alert('Event details for ID: ' + eventId);
         }
         
         function closeModal(modalId) {
