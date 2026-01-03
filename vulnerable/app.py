@@ -34,6 +34,55 @@ app.config['DATABASE'] = 'scada_alarms.db'
 app.config['LOG_DIR'] = 'logs'
 app.config['REPORT_DIR'] = 'reports'
 
+
+# *** IP BLOCKING FUNCTIONALITY ***
+def check_ip_blocked():
+    """Check if current IP is blocked in monitoring system"""
+    client_ip = request.remote_addr
+    
+    try:
+        # Query monitoring database for blocked IPs
+        import sqlite3
+        monitor_db_path = '/app/data/security_monitor.db'
+        
+        # Try different possible paths
+        if not os.path.exists(monitor_db_path):
+            monitor_db_path = '../monitoring/data/security_monitor.db'
+        if not os.path.exists(monitor_db_path):
+            monitor_db_path = 'monitoring/data/security_monitor.db'
+        
+        if os.path.exists(monitor_db_path):
+            conn = sqlite3.connect(monitor_db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT COUNT(*) FROM ip_blacklist 
+                WHERE ip_address = ? 
+                AND active = 1 
+                AND (permanent = 1 OR expires_at > datetime('now'))
+            ''', (client_ip,))
+            
+            count = cursor.fetchone()[0]
+            conn.close()
+            
+            if count > 0:
+                return True
+        
+    except Exception as e:
+        # If we can't check, don't block (fail open)
+        print(f"IP blocking check error: {e}")
+        pass
+    
+    return False
+
+@app.before_request
+def block_blacklisted_ips():
+    """Block requests from blacklisted IPs"""
+    if request.endpoint != 'static':  # Don't block static files
+        if check_ip_blocked():
+            return render_template('blocked.html'), 403
+
+
 # Create necessary directories
 os.makedirs('logs', exist_ok=True)
 os.makedirs('reports', exist_ok=True)

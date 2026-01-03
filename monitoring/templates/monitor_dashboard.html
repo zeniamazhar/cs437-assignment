@@ -3,13 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Security Monitoring Dashboard</title>
+    <title>Security Monitoring Dashboard - Admin Actions</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -20,21 +16,22 @@
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 2rem;
-            text-align: center;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 0.5rem;
-        }
+        .header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+        .header p { opacity: 0.9; }
         
-        .header p {
-            opacity: 0.9;
+        .user-info {
+            text-align: right;
+            color: white;
         }
         
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 2rem auto;
             padding: 0 2rem;
         }
@@ -54,32 +51,14 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
         
-        .stat-card.critical {
-            border-left-color: #e74c3c;
-        }
+        .stat-card.critical { border-left-color: #e74c3c; }
+        .stat-card.high { border-left-color: #f39c12; }
+        .stat-card.medium { border-left-color: #3498db; }
         
-        .stat-card.high {
-            border-left-color: #f39c12;
-        }
-        
-        .stat-card.medium {
-            border-left-color: #3498db;
-        }
-        
-        .stat-card h3 {
-            font-size: 2.5rem;
-            color: #667eea;
-            margin-bottom: 0.5rem;
-        }
-        
+        .stat-card h3 { font-size: 2.5rem; color: #667eea; margin-bottom: 0.5rem; }
         .stat-card.critical h3 { color: #e74c3c; }
         .stat-card.high h3 { color: #f39c12; }
         .stat-card.medium h3 { color: #3498db; }
-        
-        .stat-card p {
-            color: #bbb;
-            font-size: 0.95rem;
-        }
         
         .card {
             background: #16213e;
@@ -89,70 +68,27 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
         
-        .card h2 {
-            color: #667eea;
-            margin-bottom: 1.5rem;
-            font-size: 1.8rem;
-        }
+        .card h2 { color: #667eea; margin-bottom: 1.5rem; font-size: 1.8rem; }
         
-        .vulnerability-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1.5rem;
-            margin-top: 1.5rem;
-        }
-        
-        .vuln-card {
-            background: #0f3460;
-            padding: 1.5rem;
-            border-radius: 8px;
-            border: 2px solid transparent;
-            transition: all 0.3s;
-            cursor: pointer;
-        }
-        
-        .vuln-card:hover {
-            border-color: #667eea;
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
-        }
-        
-        .vuln-card h3 {
-            color: #fff;
-            margin-bottom: 1rem;
-        }
-        
-        .vuln-stats {
+        .tabs {
             display: flex;
-            justify-content: space-between;
-            margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid rgba(255,255,255,0.1);
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid rgba(255,255,255,0.1);
         }
         
-        .vuln-stat {
-            text-align: center;
-        }
-        
-        .vuln-stat .number {
-            font-size: 1.8rem;
-            font-weight: bold;
-            color: #667eea;
-        }
-        
-        .vuln-stat.blocked .number {
-            color: #27ae60;
-        }
-        
-        .vuln-stat.successful .number {
-            color: #e74c3c;
-        }
-        
-        .vuln-stat .label {
-            font-size: 0.85rem;
+        .tab {
+            padding: 1rem 2rem;
+            background: transparent;
             color: #bbb;
-            margin-top: 0.25rem;
+            border: none;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
         }
+        
+        .tab:hover { color: #667eea; }
+        .tab.active { color: #667eea; border-bottom-color: #667eea; }
         
         .events-table {
             width: 100%;
@@ -173,9 +109,7 @@
             font-weight: 600;
         }
         
-        .events-table tr:hover {
-            background: rgba(102, 126, 234, 0.1);
-        }
+        .events-table tr:hover { background: rgba(102, 126, 234, 0.1); }
         
         .badge {
             padding: 0.4rem 0.8rem;
@@ -184,65 +118,117 @@
             font-weight: 600;
         }
         
-        .badge.critical {
-            background: rgba(231, 76, 60, 0.2);
-            color: #e74c3c;
+        .badge.critical { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
+        .badge.high { background: rgba(243, 156, 18, 0.2); color: #f39c12; }
+        .badge.medium { background: rgba(52, 152, 219, 0.2); color: #3498db; }
+        .badge.low { background: rgba(149, 165, 166, 0.2); color: #95a5a6; }
+        .badge.blocked { background: rgba(39, 174, 96, 0.2); color: #27ae60; }
+        .badge.vulnerable { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
+        
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+            margin: 0.25rem;
         }
         
-        .badge.high {
-            background: rgba(243, 156, 18, 0.2);
+        .btn-primary { background: #667eea; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-warning { background: #f39c12; color: white; }
+        
+        .btn:hover { opacity: 0.8; transform: translateY(-2px); }
+        
+        .action-panel {
+            background: #0f3460;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+        
+        .action-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            color: #bbb;
+            margin-bottom: 0.5rem;
+        }
+        
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 0.7rem;
+            background: #16213e;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 5px;
+            color: #eee;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal.show { display: flex; }
+        
+        .modal-content {
+            background: #16213e;
+            padding: 2rem;
+            border-radius: 10px;
+            max-width: 600px;
+            width: 90%;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        
+        .modal-header h3 { color: #667eea; }
+        
+        .close {
+            font-size: 2rem;
+            cursor: pointer;
+            color: #bbb;
+        }
+        
+        .close:hover { color: #e74c3c; }
+        
+        .code {
+            background: #0a0a0a;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
             color: #f39c12;
         }
         
-        .badge.medium {
-            background: rgba(52, 152, 219, 0.2);
-            color: #3498db;
+        .alert {
+            padding: 1rem;
+            border-radius: 5px;
+            margin-bottom: 1rem;
         }
         
-        .badge.low {
-            background: rgba(149, 165, 166, 0.2);
-            color: #95a5a6;
-        }
-        
-        .badge.blocked {
-            background: rgba(39, 174, 96, 0.2);
-            color: #27ae60;
-        }
-        
-        .badge.vulnerable {
-            background: rgba(231, 76, 60, 0.2);
-            color: #e74c3c;
-        }
-        
-        .filters {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-        
-        .filter-btn {
-            padding: 0.7rem 1.5rem;
-            background: #0f3460;
-            color: #fff;
-            border: 2px solid transparent;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .filter-btn:hover,
-        .filter-btn.active {
-            border-color: #667eea;
-            background: rgba(102, 126, 234, 0.2);
-        }
-        
-        .auto-refresh {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            float: right;
-        }
+        .alert-success { background: rgba(39, 174, 96, 0.2); color: #27ae60; }
+        .alert-error { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
         
         .refresh-status {
             width: 10px;
@@ -256,21 +242,18 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
         }
-        
-        .code {
-            background: #0a0a0a;
-            padding: 0.3rem 0.6rem;
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.85rem;
-            color: #f39c12;
-        }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>🔍 SCADA Security Monitoring</h1>
-        <p>Real-time attack detection and vulnerability tracking</p>
+        <div>
+            <h1>🔍 SCADA Security Monitoring</h1>
+            <p>Real-time attack detection and admin response system</p>
+        </div>
+        <div class="user-info">
+            <p>Admin Panel</p>
+            <button class="btn btn-danger" onclick="window.location.href='/logout'">Logout</button>
+        </div>
     </div>
     
     <div class="container">
@@ -285,191 +268,539 @@
                 <p>Critical Severity</p>
             </div>
             <div class="stat-card medium">
-                <h3 id="blockedEvents">0</h3>
-                <p>Attacks Blocked</p>
+                <h3 id="blockedIPs">0</h3>
+                <p>IPs Blocked</p>
             </div>
             <div class="stat-card">
-                <h3 id="successfulEvents">0</h3>
-                <p>Successful Attacks</p>
+                <h3 id="actionsTaken">0</h3>
+                <p>Admin Actions Taken</p>
             </div>
         </div>
         
-        <!-- Vulnerability Breakdown -->
+        <!-- Admin Action Panel -->
         <div class="card">
-            <h2>Vulnerability Breakdown</h2>
-            <div class="vulnerability-grid" id="vulnGrid">
-                <!-- Populated by JavaScript -->
-            </div>
-        </div>
-        
-        <!-- Recent Events -->
-        <div class="card">
-            <h2>
-                Recent Security Events
-                <div class="auto-refresh">
-                    <div class="refresh-status"></div>
-                    <span style="font-size: 0.9rem; color: #bbb;">Auto-refreshing</span>
+            <h2>⚡ Quick Admin Actions</h2>
+            <div class="action-panel">
+                <div class="action-form">
+                    <div class="form-group">
+                        <label>IP Address</label>
+                        <input type="text" id="actionIP" placeholder="192.168.1.100">
+                    </div>
+                    <div class="form-group">
+                        <label>Duration (minutes)</label>
+                        <input type="number" id="actionDuration" value="60">
+                    </div>
+                    <div class="form-group">
+                        <label>Reason</label>
+                        <input type="text" id="actionReason" placeholder="Manual admin block">
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: flex-end;">
+                        <button class="btn btn-danger" onclick="blockIP()">Block IP</button>
+                        <button class="btn btn-success" onclick="unblockIP()">Unblock IP</button>
+                    </div>
                 </div>
-            </h2>
-            
-            <div class="filters">
-                <button class="filter-btn active" onclick="filterEvents('all')">All Events</button>
-                <button class="filter-btn" onclick="filterEvents('CSRF')">CSRF</button>
-                <button class="filter-btn" onclick="filterEvents('SSRF')">SSRF</button>
-                <button class="filter-btn" onclick="filterEvents('PATH_TRAVERSAL')">Path Traversal</button>
-                <button class="filter-btn" onclick="filterEvents('SQL_INJECTION')">SQL Injection</button>
+            </div>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="card">
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('events')">Security Events</button>
+                <button class="tab" onclick="showTab('blocked')">Blocked IPs</button>
+                <button class="tab" onclick="showTab('actions')">Actions History</button>
+                <button class="tab" onclick="showTab('rules')">Alert Rules</button>
             </div>
             
-            <table class="events-table">
-                <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Vulnerability</th>
-                        <th>Severity</th>
-                        <th>Source IP</th>
-                        <th>Endpoint</th>
-                        <th>Status</th>
-                        <th>System</th>
-                    </tr>
-                </thead>
-                <tbody id="eventsTableBody">
-                    <!-- Populated by JavaScript -->
-                </tbody>
-            </table>
+            <!-- Security Events Tab -->
+            <div id="eventsTab" class="tab-content">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h2>Recent Security Events</h2>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="refresh-status"></div>
+                        <span style="font-size: 0.9rem; color: #bbb;">Auto-refreshing (5s)</span>
+                    </div>
+                </div>
+                <table class="events-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Source IP</th>
+                            <th>System</th>
+                            <th>Vulnerability</th>
+                            <th>Severity</th>
+                            <th>Endpoint</th>
+                            <th>Status</th>
+                            <th>Classification</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="eventsTableBody"></tbody>
+                </table>
+            </div>
+            
+            <!-- Blocked IPs Tab -->
+            <div id="blockedTab" class="tab-content" style="display: none;">
+                <h2>Blocked IP Addresses</h2>
+                <table class="events-table">
+                    <thead>
+                        <tr>
+                            <th>IP Address</th>
+                            <th>Reason</th>
+                            <th>Blocked By</th>
+                            <th>Added At</th>
+                            <th>Expires At</th>
+                            <th>Times Blocked</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="blockedTableBody"></tbody>
+                </table>
+            </div>
+            
+            <!-- Actions History Tab -->
+            <div id="actionsTab" class="tab-content" style="display: none;">
+                <h2>Response Actions History</h2>
+                <table class="events-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Action Type</th>
+                            <th>Details</th>
+                            <th>Performed By</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Reverse</th>
+                        </tr>
+                    </thead>
+                    <tbody id="actionsTableBody"></tbody>
+                </table>
+            </div>
+            
+            <!-- Alert Rules Tab -->
+            <div id="rulesTab" class="tab-content" style="display: none;">
+                <h2>Alert Rules Configuration</h2>
+                <table class="events-table">
+                    <thead>
+                        <tr>
+                            <th>Rule Name</th>
+                            <th>Vulnerability Type</th>
+                            <th>Threshold</th>
+                            <th>Time Window (s)</th>
+                            <th>Action</th>
+                            <th>Status</th>
+                            <th>Automated</th>
+                            <th>Configure</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rulesTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Event Details Modal -->
+    <div id="eventModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Event Details</h3>
+                <span class="close" onclick="closeModal('eventModal')">&times;</span>
+            </div>
+            <div id="eventDetails"></div>
         </div>
     </div>
     
     <script>
-        let currentFilter = 'all';
+        let currentTab = 'events';
         
-        // Fetch and display statistics
+        function showTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+            event.target.classList.add('active');
+            document.getElementById(tab + 'Tab').style.display = 'block';
+            
+            if (tab === 'blocked') loadBlockedIPs();
+            else if (tab === 'actions') loadActions();
+            else if (tab === 'rules') loadRules();
+        }
+        
         async function loadStatistics() {
             try {
                 const response = await fetch('/api/statistics');
-                const data = await response.json();
                 
-                // Update vulnerability cards
-                const vulnGrid = document.getElementById('vulnGrid');
-                vulnGrid.innerHTML = '';
-                
-                const vulnTypes = {
-                    'CSRF': 'Cross-Site Request Forgery',
-                    'SSRF': 'Server-Side Request Forgery',
-                    'PATH_TRAVERSAL': 'Path Traversal',
-                    'SQL_INJECTION': 'SQL Injection'
-                };
-                
-                for (const [type, name] of Object.entries(vulnTypes)) {
-                    const stats = data.vulnerabilities[type] || {total: 0, blocked: 0, successful: 0};
-                    
-                    const card = document.createElement('div');
-                    card.className = 'vuln-card';
-                    card.onclick = () => filterEvents(type);
-                    card.innerHTML = `
-                        <h3>${name}</h3>
-                        <p style="color: #bbb;">${type}</p>
-                        <div class="vuln-stats">
-                            <div class="vuln-stat">
-                                <div class="number">${stats.total}</div>
-                                <div class="label">Total</div>
-                            </div>
-                            <div class="vuln-stat successful">
-                                <div class="number">${stats.successful}</div>
-                                <div class="label">Successful</div>
-                            </div>
-                            <div class="vuln-stat blocked">
-                                <div class="number">${stats.blocked}</div>
-                                <div class="label">Blocked</div>
-                            </div>
-                        </div>
-                    `;
-                    vulnGrid.appendChild(card);
+                // Check content type BEFORE trying to parse
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    console.log('Not authenticated - redirecting to login');
+                    window.location.href = '/login';
+                    return;
                 }
                 
-                // Update overall statistics
-                const totalEvents = Object.values(data.vulnerabilities).reduce((sum, v) => sum + v.total, 0);
-                const blockedEvents = Object.values(data.vulnerabilities).reduce((sum, v) => sum + v.blocked, 0);
-                const successfulEvents = totalEvents - blockedEvents;
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                const totalEvents = Object.values(data.vulnerabilities || {}).reduce((sum, v) => sum + v.total, 0);
                 const criticalEvents = data.severity['CRITICAL'] || 0;
                 
                 document.getElementById('totalEvents').textContent = totalEvents;
                 document.getElementById('criticalEvents').textContent = criticalEvents;
-                document.getElementById('blockedEvents').textContent = blockedEvents;
-                document.getElementById('successfulEvents').textContent = successfulEvents;
+                document.getElementById('blockedIPs').textContent = data.blocked_ips_count || 0;
+                document.getElementById('actionsTaken').textContent = data.total_actions || 0;
                 
             } catch (error) {
                 console.error('Error loading statistics:', error);
+                // Don't redirect on every error, could be network issue
             }
         }
         
-        // Fetch and display events
-        async function loadEvents(type = '') {
+        async function loadEvents() {
             try {
-                const url = type ? `/api/events?type=${type}` : '/api/events';
-                const response = await fetch(url);
+                const response = await fetch('/api/events');
+                
+                // Check content type BEFORE trying to parse
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    console.log('Not authenticated - redirecting to login');
+                    window.location.href = '/login';
+                    return;
+                }
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const events = await response.json();
                 
                 const tbody = document.getElementById('eventsTableBody');
                 tbody.innerHTML = '';
                 
                 if (events.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #bbb;">No events recorded yet. Generate sample data or start testing vulnerabilities.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 2rem; color: #bbb;">No events recorded</td></tr>';
                     return;
                 }
                 
                 events.forEach(event => {
+                    const systemBadge = event.system_version === 'vulnerable' 
+                        ? '<span class="badge vulnerable">VULNERABLE</span>' 
+                        : '<span class="badge blocked">PATCHED</span>';
+                    
                     const row = document.createElement('tr');
                     row.innerHTML = `
                         <td>${new Date(event.timestamp).toLocaleString()}</td>
+                        <td><span class="code">${event.source_ip || 'N/A'}</span></td>
+                        <td>${systemBadge}</td>
                         <td><span class="code">${event.vulnerability_type || 'N/A'}</span></td>
                         <td><span class="badge ${event.severity.toLowerCase()}">${event.severity}</span></td>
-                        <td>${event.source_ip}</td>
                         <td><span class="code">${event.endpoint}</span></td>
-                        <td><span class="badge ${event.blocked ? 'blocked' : 'vulnerable'}">${event.blocked ? 'BLOCKED' : 'SUCCESSFUL'}</span></td>
-                        <td><span class="badge">${event.system_version}</span></td>
+                        <td><span class="badge ${event.blocked ? 'blocked' : 'vulnerable'}">${event.blocked ? 'BLOCKED' : 'ALLOWED'}</span></td>
+                        <td>${event.attack_classification || 'N/A'}</td>
+                        <td>
+                            <button class="btn btn-primary" onclick="showEventDetails(${event.id})">Details</button>
+                            <button class="btn btn-warning" onclick="markFalsePositive(${event.id})">False+</button>
+                            ${!event.blocked ? `<button class="btn btn-danger" onclick="blockIPFromEvent('${event.source_ip}')">Block IP</button>` : ''}
+                        </td>
                     `;
                     tbody.appendChild(row);
                 });
                 
             } catch (error) {
                 console.error('Error loading events:', error);
+                // Don't redirect on every error
             }
         }
         
-        // Filter events by vulnerability type
-        function filterEvents(type) {
-            currentFilter = type;
+        async function loadBlockedIPs() {
+            try {
+                const response = await fetch('/api/blocked_ips');
+                
+                // Check content type BEFORE trying to parse
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    console.log('Not authenticated - redirecting to login');
+                    window.location.href = '/login';
+                    return;
+                }
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const ips = await response.json();
+                
+                const tbody = document.getElementById('blockedTableBody');
+                tbody.innerHTML = '';
+                
+                if (ips.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #bbb;">No blocked IPs</td></tr>';
+                    return;
+                }
+                
+                ips.forEach(ip => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td><span class="code">${ip.ip_address}</span></td>
+                        <td>${ip.reason}</td>
+                        <td>${ip.added_by}</td>
+                        <td>${new Date(ip.added_at).toLocaleString()}</td>
+                        <td>${ip.expires_at ? new Date(ip.expires_at).toLocaleString() : 'Permanent'}</td>
+                        <td>${ip.times_blocked || 0}</td>
+                        <td>
+                            <button class="btn btn-success" onclick="unblockIPDirect('${ip.ip_address}')">Unblock</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                
+            } catch (error) {
+                console.error('Error loading blocked IPs:', error);
+            }
+        }
+        
+        async function loadActions() {
+            try {
+                const response = await fetch('/api/response_actions');
+                
+                // Check content type BEFORE trying to parse
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    console.log('Not authenticated - redirecting to login');
+                    window.location.href = '/login';
+                    return;
+                }
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const actions = await response.json();
+                
+                const tbody = document.getElementById('actionsTableBody');
+                tbody.innerHTML = '';
+                
+                if (actions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #bbb;">No actions recorded</td></tr>';
+                    return;
+                }
+                
+                actions.forEach(action => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${new Date(action.timestamp).toLocaleString()}</td>
+                        <td><span class="badge medium">${action.action_type}</span></td>
+                        <td>${action.action_details}</td>
+                        <td>${action.performed_by}</td>
+                        <td><span class="badge ${action.automatic ? 'warning' : 'success'}">${action.automatic ? 'AUTO' : 'MANUAL'}</span></td>
+                        <td><span class="badge ${action.reversed ? 'low' : 'success'}">${action.reversed ? 'REVERSED' : 'ACTIVE'}</span></td>
+                        <td>
+                            ${action.can_reverse && !action.reversed ? `<button class="btn btn-warning" onclick="reverseAction(${action.id})">Reverse</button>` : '-'}
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                
+            } catch (error) {
+                console.error('Error loading actions:', error);
+            }
+        }
+        
+        async function loadRules() {
+            try {
+                const response = await fetch('/api/alert_rules');
+                
+                // Check content type BEFORE trying to parse
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    console.log('Not authenticated - redirecting to login');
+                    window.location.href = '/login';
+                    return;
+                }
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const rules = await response.json();
+                
+                const tbody = document.getElementById('rulesTableBody');
+                tbody.innerHTML = '';
+                
+                rules.forEach(rule => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${rule.rule_name}</td>
+                        <td><span class="code">${rule.vulnerability_type}</span></td>
+                        <td>${rule.threshold}</td>
+                        <td>${rule.time_window}</td>
+                        <td>${rule.action}</td>
+                        <td><span class="badge ${rule.active ? 'success' : 'low'}">${rule.active ? 'ACTIVE' : 'INACTIVE'}</span></td>
+                        <td><span class="badge ${rule.automated ? 'warning' : 'medium'}">${rule.automated ? 'YES' : 'NO'}</span></td>
+                        <td>
+                            <button class="btn btn-primary" onclick="toggleRule(${rule.id}, ${!rule.active})">
+                                ${rule.active ? 'Disable' : 'Enable'}
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                
+            } catch (error) {
+                console.error('Error loading rules:', error);
+            }
+        }
+        
+        async function blockIP() {
+            const ip = document.getElementById('actionIP').value;
+            const duration = document.getElementById('actionDuration').value;
+            const reason = document.getElementById('actionReason').value || 'Manual admin block';
             
-            // Update active button
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
+            if (!ip) {
+                alert('Please enter an IP address');
+                return;
+            }
             
-            // Load filtered events
-            if (type === 'all') {
+            try {
+                const response = await fetch('/api/take_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: 'BLOCK_IP',
+                        ip_address: ip,
+                        duration_minutes: parseInt(duration),
+                        reason: reason
+                    })
+                });
+                
+                const result = await response.json();
+                alert(result.message || 'IP blocked successfully');
+                loadBlockedIPs();
+                loadStatistics();
+            } catch (error) {
+                alert('Error blocking IP: ' + error.message);
+            }
+        }
+        
+        async function unblockIP() {
+            const ip = document.getElementById('actionIP').value;
+            if (!ip) {
+                alert('Please enter an IP address');
+                return;
+            }
+            await unblockIPDirect(ip);
+        }
+        
+        async function unblockIPDirect(ip) {
+            try {
+                const response = await fetch('/api/take_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: 'UNBLOCK_IP',
+                        ip_address: ip
+                    })
+                });
+                
+                const result = await response.json();
+                alert(result.message || 'IP unblocked successfully');
+                loadBlockedIPs();
+                loadStatistics();
+            } catch (error) {
+                alert('Error unblocking IP: ' + error.message);
+            }
+        }
+        
+        async function blockIPFromEvent(ip) {
+            document.getElementById('actionIP').value = ip;
+            await blockIP();
+        }
+        
+        async function markFalsePositive(eventId) {
+            const notes = prompt('Enter notes for false positive:');
+            if (!notes) return;
+            
+            try {
+                const response = await fetch('/api/take_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: 'MARK_FALSE_POSITIVE',
+                        event_id: eventId,
+                        notes: notes
+                    })
+                });
+                
+                const result = await response.json();
+                alert(result.message || 'Marked as false positive');
                 loadEvents();
-            } else {
-                loadEvents(type);
+            } catch (error) {
+                alert('Error: ' + error.message);
             }
         }
         
-        // Auto-refresh data every 5 seconds
+        async function reverseAction(actionId) {
+            if (!confirm('Are you sure you want to reverse this action?')) return;
+            
+            try {
+                const response = await fetch('/api/take_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: 'REVERSE_ACTION',
+                        action_id: actionId
+                    })
+                });
+                
+                const result = await response.json();
+                alert(result.message || 'Action reversed');
+                loadActions();
+                loadBlockedIPs();
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        async function toggleRule(ruleId, activate) {
+            try {
+                const response = await fetch('/api/take_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: 'UPDATE_RULE',
+                        rule_id: ruleId,
+                        active: activate ? 1 : 0
+                    })
+                });
+                
+                const result = await response.json();
+                alert(result.message || 'Rule updated');
+                loadRules();
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        function showEventDetails(eventId) {
+            // Implement detailed event view
+            alert('Event details for ID: ' + eventId);
+        }
+        
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+        
+        // Auto-refresh
         setInterval(() => {
             loadStatistics();
-            if (currentFilter === 'all') {
-                loadEvents();
-            } else {
-                loadEvents(currentFilter);
-            }
+            if (currentTab === 'events') loadEvents();
+            else if (currentTab === 'blocked') loadBlockedIPs();
+            else if (currentTab === 'actions') loadActions();
         }, 5000);
         
         // Initial load
         loadStatistics();
         loadEvents();
-        
-        // Generate sample data button (for demo)
-        console.log('💡 Tip: Visit /api/generate_sample_data to populate with demo events');
     </script>
 </body>
 </html>
