@@ -57,7 +57,17 @@
                 <td>{{ alarm.description }}</td>
                 <td>{{ alarm.location }}</td>
                 <td>{{ alarm.triggered_at }}</td>
-                <td>{{ alarm.status }}</td>
+                <td>
+                    {% if alarm.acknowledged %}
+                        ✅ Acknowledged
+                    {% elif alarm.silenced %}
+                        🔇 Silenced
+                    {% elif alarm.escalated %}
+                        ⬆️ Escalated
+                    {% else %}
+                        🔴 Active
+                    {% endif %}
+                </td>
                 <td>
                     <a href="{{ url_for('alarm_detail', alarm_id=alarm.id) }}" class="btn btn-primary" style="padding: 0.4rem 0.8rem;">View</a>
                 </td>
