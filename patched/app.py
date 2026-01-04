@@ -25,6 +25,8 @@ from jinja2.sandbox import SandboxedEnvironment
 import json
 import re
 from urllib.parse import urlparse
+import time
+from collections import defaultdict
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)  # Longer secret key
@@ -32,6 +34,10 @@ app.config['DATABASE'] = 'scada_alarms.db'
 app.config['LOG_DIR'] = 'logs'
 app.config['REPORT_DIR'] = 'reports'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+
+# TRACKING DICTIONARY FOR RATE LIMITING
+# Key: IP Address, Value: List of timestamps of failed attempts
+failed_login_attempts = defaultdict(list)
 
 # Create necessary directories
 os.makedirs('logs', exist_ok=True)
@@ -268,7 +274,34 @@ def login():
     """
     SECURITY PATCH: Fixed SQL injection with parameterized queries
     *** MONITORING: Login attempts tracked ***
+    SECURITY PATCH: Parameterized queries + RATE LIMITING
     """
+    #Rate limit check
+    ip_address=request.remote_addr
+    current_time=time.time()
+
+    # Clean up old attempts (older than 5 minutes)
+    # This keeps only failures that happened in the last 300 seconds
+    failed_login_attempts[ip_address]=[
+        t for t in failed_login_attempts[ip_address] 
+        if current_time - t < 300
+    ]
+
+    # Check if IP is currently banned (3 or more attempts)
+    if len(failed_login_attempts[ip_address]) >= 3:
+        # *** MONITORING: Log the Brute Force Block ***
+        log_to_monitoring({
+            'event_type': 'BRUTE_FORCE_BLOCKED',
+            'severity': 'HIGH',
+            'source_ip': ip_address,
+            'endpoint': '/login',
+            'vulnerability_type': 'BRUTE_FORCE',
+            'blocked': True,
+            'description': f"Too many failed login attempts ({len(failed_login_attempts[ip_address])}). IP temporarily banned.",
+            'system_version': 'patched'
+        })
+        return render_template('login.html', error='Too many failed attempts. Please try again in 5 minutes.')
+    
     if request.method == 'POST':
         username = request.form.get('username', '')
         password = request.form.get('password', '')
@@ -333,13 +366,18 @@ def login():
         })
         
         if user:
+            # SUCCESS: Clear failed attempts for this IP
+            failed_login_attempts[ip_address] = []
             session['username'] = user['username']
             session['role'] = user['role']
             generate_csrf_token()  # Generate CSRF token on login
             db.close()
             return redirect(url_for('index'))
         else:
+            # FAILURE: Add timestamp to the list
+            failed_login_attempts[ip_address].append(current_time)
             db.close()
+            remaining = 3 - len(failed_login_attempts[ip_address])
             return render_template('login.html', error='Invalid credentials')
     
     return render_template('login.html')
