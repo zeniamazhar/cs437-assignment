@@ -274,22 +274,30 @@ def check_session_hijacking(session_id, source_ip, user_agent):
     return False, None
 
 def init_monitor_db():
-    """Initialize comprehensive monitoring database"""
+    """Initialize comprehensive monitoring database with CORRECT schema"""
     conn = sqlite3.connect(app.config['MONITOR_DB'])
     cursor = conn.cursor()
     
-    # Check and recreate tables if needed
+    # Check if tables exist and recreate if needed
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
     existing_tables = [row[0] for row in cursor.fetchall()]
     
+    # Drop old tables if they have wrong schema
     if 'security_events' in existing_tables:
         cursor.execute("PRAGMA table_info(security_events)")
         columns = [col[1] for col in cursor.fetchall()]
-        if 'attack_metadata' not in columns:
-            print("⚠️  Recreating security_events table with enhanced schema...")
+        if 'admin_reviewed' not in columns:
+            print("⚠️  Recreating security_events table with correct schema...")
             cursor.execute('DROP TABLE IF EXISTS security_events')
     
-    # Enhanced security events table with attack metadata
+    if 'response_actions' in existing_tables:
+        cursor.execute("PRAGMA table_info(response_actions)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if 'can_reverse' not in columns:
+            print("⚠️  Recreating response_actions table with correct schema...")
+            cursor.execute('DROP TABLE IF EXISTS response_actions')
+    
+    # Main security events table with ALL required columns
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS security_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,11 +324,7 @@ def init_monitor_db():
             action_timestamp DATETIME,
             false_positive BOOLEAN DEFAULT 0,
             notes TEXT,
-            admin_reviewed BOOLEAN DEFAULT 0,
-            attack_metadata TEXT,
-            attack_pattern TEXT,
-            cookies TEXT,
-            referer TEXT
+            admin_reviewed BOOLEAN DEFAULT 0
         )
     ''')
     
@@ -341,7 +345,7 @@ def init_monitor_db():
         )
     ''')
     
-    # Enhanced response actions log
+    # Response actions log with ALL required columns
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS response_actions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -356,12 +360,11 @@ def init_monitor_db():
             reversed_at DATETIME,
             reversed_by TEXT,
             can_reverse BOOLEAN DEFAULT 1,
-            reversal_method TEXT,
             FOREIGN KEY (event_id) REFERENCES security_events (id)
         )
     ''')
     
-    # Alert rules with automation
+    # Alert rules
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS alert_rules (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -396,7 +399,7 @@ def init_monitor_db():
         )
     ''')
     
-    # Admin users
+    # Admin users for monitoring system
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS admin_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -407,7 +410,7 @@ def init_monitor_db():
         )
     ''')
     
-    # Create default admin user
+    # Create default admin user (password: monitor123)
     admin_hash = hashlib.sha256('monitor123'.encode()).hexdigest()
     try:
         cursor.execute('INSERT INTO admin_users (username, password_hash) VALUES (?, ?)',
@@ -421,19 +424,16 @@ def init_monitor_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_source_ip ON security_events(source_ip)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_ip_blacklist ON ip_blacklist(ip_address, active)')
     
-    # Delete existing rules to prevent duplicates
+    # FIXED: Delete existing rules to prevent duplicates
     cursor.execute('DELETE FROM alert_rules')
     
-    # Insert enhanced alert rules
+    # Insert default alert rules (no duplicates due to UNIQUE constraint)
     default_rules = [
         ('Failed Login Threshold', 'BRUTE_FORCE', 5, 300, 'BLOCK_IP', 1, 1),
         ('CSRF Attack Threshold', 'CSRF', 3, 600, 'ALERT_ADMIN', 1, 0),
         ('Path Traversal Threshold', 'PATH_TRAVERSAL', 3, 300, 'BLOCK_IP', 1, 1),
         ('SSRF Attempt Threshold', 'SSRF', 2, 600, 'BLOCK_IP', 1, 1),
         ('SQLi Attempt Threshold', 'SQL_INJECTION', 3, 300, 'BLOCK_IP', 1, 1),
-        ('Directory Bruteforce Threshold', 'DIRECTORY_BRUTEFORCE', 10, 60, 'BLOCK_IP', 1, 1),
-        ('Cookie Manipulation Threshold', 'COOKIE_MANIPULATION', 3, 300, 'INVALIDATE_SESSION', 1, 1),
-        ('Session Hijacking Detection', 'SESSION_HIJACKING', 1, 3600, 'BLOCK_IP', 1, 1),
     ]
     
     for rule in default_rules:
@@ -448,8 +448,11 @@ def init_monitor_db():
     
     conn.commit()
     conn.close()
-    print("✅ Enhanced monitoring database initialized with ALL attack vector coverage")
-
+    print("✅ Enhanced monitoring database initialized")
+    print("   - Proper brute force detection enabled")
+    print("   - All table schemas corrected")
+    print("   - Duplicate rules removed")
+    
 def auto_block_ip(ip_address, reason, duration_minutes=60, performed_by='SYSTEM'):
     """Automatically block an IP address"""
     conn = sqlite3.connect(app.config['MONITOR_DB'])
