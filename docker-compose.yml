@@ -11,7 +11,6 @@ services:
     environment:
       - FLASK_ENV=development
       - DATABASE_PATH=/app/data/scada_alarms.db
-      - VIRUSTOTAL_API_KEY=bee5d856c626b6c9dc5f96befa5ff3332091df41c23562bc4348867e4d0751a2
     networks:
       - scada-network
     restart: unless-stopped
