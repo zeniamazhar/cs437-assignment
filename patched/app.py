@@ -1,5 +1,5 @@
 """
-SCADA Alarm Management Console - PATCHED VERSION (WITH MONITORING)
+SCADA Alarm Management Console - PATCHED VERSION (WITH WORKING MONITORING)
 Task 9 - CS 437 Assignment
 
 This version contains security patches for:
@@ -8,7 +8,7 @@ This version contains security patches for:
 3. Path Traversal Protection - Input sanitization and path validation
 4. SQL Injection Protection - Parameterized queries for all encodings
 
-*** MONITORING INTEGRATION ADDED ***
+*** FULLY WORKING MONITORING INTEGRATION ***
 SECURITY IMPROVEMENTS IMPLEMENTED
 """
 
@@ -29,15 +29,15 @@ import time
 from collections import defaultdict
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(32)  # Longer secret key
+app.secret_key = secrets.token_hex(32)
 app.config['DATABASE'] = 'scada_alarms.db'
 app.config['LOG_DIR'] = 'logs'
 app.config['REPORT_DIR'] = 'reports'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# TRACKING DICTIONARY FOR RATE LIMITING
-# Key: IP Address, Value: List of timestamps of failed attempts
+# TRACKING
 failed_login_attempts = defaultdict(list)
+session_usage_tracker = {}  # Track session usage
 
 # Create necessary directories
 os.makedirs('logs', exist_ok=True)
@@ -50,53 +50,26 @@ MONITORING_URL = "http://scada_monitoring:5002"
 def log_to_monitoring(event_data):
     """Send security event to monitoring system"""
     try:
+        # FIXED: Properly capture and send cookies as dictionary
+        cookies_dict = {}
+        for key, value in request.cookies.items():
+            cookies_dict[key] = value
+        
+        # Enrich event data
+        event_data['cookies'] = cookies_dict  # Send as dict
+        event_data['session_id'] = request.cookies.get('session', '')
+        event_data['referer'] = request.headers.get('Referer', '')
+        event_data['user_agent'] = request.headers.get('User-Agent', '')
+        event_data['source_ip'] = request.remote_addr
+        event_data['response_status'] = event_data.get('response_status', 200)
+        
         requests.post(
             f"{MONITORING_URL}/api/log_event",
             json=event_data,
             timeout=1
         )
     except Exception as e:
-        # Don't let monitoring failures break the app
         pass
-
-def scan_file_with_virustotal(file_path):
-    """
-    Scans a file hash against VirusTotal API to check for malware.
-    """
-    api_key = os.environ.get('VIRUSTOTAL_API_KEY')
-    if not api_key:
-        print("Warning: VIRUSTOTAL_API_KEY not found")
-        return None 
-
-    try:
-        # 1. Calculate SHA-256 Hash
-        sha256_hash = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
-        file_hash = sha256_hash.hexdigest()
-
-        # 2. Check Hash against VirusTotal API
-        url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
-        headers = {"x-apikey": api_key}
-        
-        response = requests.get(url, headers=headers, timeout=5)
-        
-        if response.status_code == 200:
-            stats = response.json()['data']['attributes']['last_analysis_stats']
-            malicious_count = stats['malicious']
-            
-            if malicious_count > 0:
-                return f"MALWARE DETECTED! ({malicious_count} engines flagged this file)"
-            else:
-                return "Clean"
-        elif response.status_code == 404:
-            return "Unknown File (Not in VirusTotal database)"
-            
-    except Exception as e:
-        return f"Scan Error: {str(e)}"
-    
-    return None
 
 def detect_sqli_pattern(input_str):
     """Simple SQL injection pattern detection"""
@@ -110,6 +83,32 @@ def detect_path_traversal(path):
     if not path:
         return False
     return '..' in path or path.startswith('/') or path.startswith('\\')
+
+def check_cookie_suspicious(cookie_value):
+    """Check if cookie looks suspicious"""
+    if not cookie_value:
+        return False, None
+    
+    if len(cookie_value) > 500:
+        return True, "Unusually long session cookie"
+    
+    if '..' in cookie_value:
+        return True, "Path traversal pattern in cookie"
+    
+    if '<script>' in cookie_value.lower() or 'javascript:' in cookie_value.lower():
+        return True, "XSS attempt in cookie"
+    
+    if 'admin' in cookie_value.lower() or 'role=' in cookie_value.lower():
+        if session.get('role') != 'admin':
+            return True, "Privilege escalation attempt in cookie"
+    
+    if detect_sqli_pattern(cookie_value):
+        return True, "SQL injection pattern in cookie"
+    
+    if any(pattern in cookie_value for pattern in ['|', ';', '&&', '$(', '`']):
+        return True, "Command injection pattern in cookie"
+    
+    return False, None
 
 def generate_csrf_token():
     """Generate CSRF token for session"""
@@ -128,14 +127,10 @@ def inject_csrf_token():
 
 def sanitize_path(user_input, base_dir):
     """SECURITY PATCH: Sanitize file paths to prevent directory traversal"""
-    # Remove any path traversal attempts
     user_input = user_input.replace('..', '').replace('//', '/')
-    
-    # Join with base directory and resolve to absolute path
     requested_path = os.path.abspath(os.path.join(base_dir, user_input))
     base_path = os.path.abspath(base_dir)
     
-    # Ensure the requested path is within the base directory
     if not requested_path.startswith(base_path):
         raise ValueError("Invalid path: Directory traversal detected")
     
@@ -152,7 +147,6 @@ def init_db():
     db = get_db()
     cursor = db.cursor()
     
-    # Users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,7 +157,6 @@ def init_db():
         )
     ''')
     
-    # Alarms table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS alarms (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,7 +176,6 @@ def init_db():
         )
     ''')
     
-    # Alarm logs table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS alarm_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,7 +188,6 @@ def init_db():
         )
     ''')
     
-    # Reports table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS reports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,7 +199,6 @@ def init_db():
         )
     ''')
     
-    # Create default admin user (password: admin123)
     admin_hash = hashlib.sha256('admin123'.encode()).hexdigest()
     try:
         cursor.execute('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
@@ -216,7 +206,6 @@ def init_db():
     except sqlite3.IntegrityError:
         pass
     
-    # Create operator user
     operator_hash = hashlib.sha256('operator123'.encode()).hexdigest()
     try:
         cursor.execute('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
@@ -227,16 +216,78 @@ def init_db():
     db.commit()
     db.close()
 
+# FIXED: Check cookies on every request (middleware)
+@app.before_request
+def check_cookies_before_request():
+    """Check cookies for manipulation on every request"""
+    if request.endpoint in ['static', 'login']:
+        return None
+    
+    session_cookie = request.cookies.get('session', '')
+    if session_cookie:
+        is_suspicious, reason = check_cookie_suspicious(session_cookie)
+        
+        if is_suspicious:
+            log_to_monitoring({
+                'event_type': 'COOKIE_MANIPULATION_DETECTED',
+                'severity': 'HIGH',
+                'endpoint': request.path,
+                'method': request.method,
+                'vulnerability_type': 'COOKIE_MANIPULATION',
+                'description': f'Cookie manipulation detected: {reason}',
+                'system_version': 'patched',
+                'response_status': 200
+            })
+
+# FIXED: Track 404s for directory brute-forcing
+@app.after_request
+def log_response(response):
+    """Log all responses to detect directory brute-forcing"""
+    if response.status_code == 404 and request.endpoint != 'static':
+        log_to_monitoring({
+            'event_type': 'FILE_NOT_FOUND',
+            'severity': 'LOW',
+            'endpoint': request.path,
+            'method': request.method,
+            'response_status': 404,
+            'vulnerability_type': 'DIRECTORY_BRUTEFORCE',
+            'description': f'404 error on {request.path}',
+            'system_version': 'patched'
+        })
+    
+    return response
+
 @app.route('/')
 def index():
     """Main dashboard"""
     if 'username' not in session:
         return redirect(url_for('login'))
     
+    # FIXED: Track session for hijacking detection
+    session_id = request.cookies.get('session', '')
+    if session_id:
+        current_ip = request.remote_addr
+        current_ua = request.headers.get('User-Agent', '')
+        
+        if session_id in session_usage_tracker:
+            prev_ip, prev_ua = session_usage_tracker[session_id]
+            if prev_ip != current_ip or prev_ua != current_ua:
+                log_to_monitoring({
+                    'event_type': 'SESSION_HIJACKING_DETECTED',
+                    'severity': 'CRITICAL',
+                    'endpoint': '/',
+                    'method': 'GET',
+                    'vulnerability_type': 'SESSION_HIJACKING',
+                    'description': f'Session used from different IP/UA',
+                    'system_version': 'patched',
+                    'response_status': 200
+                })
+        
+        session_usage_tracker[session_id] = (current_ip, current_ua)
+    
     db = get_db()
     cursor = db.cursor()
     
-    # Get active alarms with parameterized query
     cursor.execute('''
         SELECT * FROM alarms 
         WHERE status = ? 
@@ -251,7 +302,6 @@ def index():
     ''', ('active',))
     alarms = cursor.fetchall()
     
-    # Get statistics
     cursor.execute('SELECT COUNT(*) as count FROM alarms WHERE status = ?', ('active',))
     active_count = cursor.fetchone()['count']
     
@@ -274,43 +324,36 @@ def login():
     """
     SECURITY PATCH: Fixed SQL injection with parameterized queries
     *** MONITORING: Login attempts tracked ***
-    SECURITY PATCH: Parameterized queries + RATE LIMITING
     """
-    #Rate limit check
-    ip_address=request.remote_addr
-    current_time=time.time()
+    ip_address = request.remote_addr
+    current_time = time.time()
 
-    # Clean up old attempts (older than 5 minutes)
-    # This keeps only failures that happened in the last 300 seconds
-    failed_login_attempts[ip_address]=[
+    # Clean up old attempts
+    failed_login_attempts[ip_address] = [
         t for t in failed_login_attempts[ip_address] 
         if current_time - t < 300
     ]
 
-    # Check if IP is currently banned (3 or more attempts)
+    # Check if IP is banned
     if len(failed_login_attempts[ip_address]) >= 3:
-        # *** MONITORING: Log the Brute Force Block ***
         log_to_monitoring({
             'event_type': 'BRUTE_FORCE_BLOCKED',
             'severity': 'HIGH',
-            'source_ip': ip_address,
             'endpoint': '/login',
             'vulnerability_type': 'BRUTE_FORCE',
             'blocked': True,
-            'description': f"Too many failed login attempts ({len(failed_login_attempts[ip_address])}). IP temporarily banned.",
+            'description': f"Too many failed attempts ({len(failed_login_attempts[ip_address])})",
             'system_version': 'patched'
         })
-        return render_template('login.html', error='Too many failed attempts. Please try again in 5 minutes.')
+        return render_template('login.html', error='Too many failed attempts. Try again in 5 minutes.')
     
     if request.method == 'POST':
         username = request.form.get('username', '')
         password = request.form.get('password', '')
         
-        # Check for special encoding
         encoding = request.headers.get('Content-Encoding', 'utf-8')
         
         username_for_monitoring = username
-        # If UTF-16 or UTF-7 encoded, decode it for monitoring visibility
         if encoding.lower() in ['utf-16', 'utf-7', 'utf-16le', 'utf-16be']:
             try:
                 username_bytes = username.encode('latin-1')
@@ -318,22 +361,19 @@ def login():
             except:
                 pass
 
-        # *** MONITORING: Detect attack attempts ***
+        # Detect attack attempts
         if detect_sqli_pattern(username_for_monitoring):
             log_to_monitoring({
                 'event_type': 'SQL_INJECTION_BLOCKED',
                 'severity': 'CRITICAL',
-                'source_ip': request.remote_addr,
-                'user_agent': request.headers.get('User-Agent', ''),
                 'endpoint': '/login',
                 'method': 'POST',
                 'payload': json.dumps({'username': username_for_monitoring, 'encoding': encoding}),
                 'vulnerability_type': 'SQL_INJECTION',
                 'classification': 'SQLi-Encoded',
                 'blocked': True,
-                'description': f"SQL injection attempt with {encoding} blocked in login",
-                'system_version': 'patched',
-                'recommended_action': 'IP monitored for further attacks'
+                'description': f"SQL injection attempt with {encoding} blocked",
+                'system_version': 'patched'
             })
         
         # SECURE: Hash password
@@ -342,42 +382,48 @@ def login():
         db = get_db()
         cursor = db.cursor()
         
-        # SECURE: Parameterized query - immune to SQL injection regardless of encoding
+        # SECURE: Parameterized query
         cursor.execute('SELECT * FROM users WHERE username = ? AND password_hash = ?',
                       (username, password_hash))
         user = cursor.fetchone()
         
-        # *** MONITORING: Log login attempt ***
+        # Create session if success
+        if user:
+            session['username'] = user['username']
+            session['role'] = user['role']
+            generate_csrf_token()
+            
+            # Track session
+            session_id = request.cookies.get('session', '')
+            if session_id:
+                session_usage_tracker[session_id] = (
+                    request.remote_addr,
+                    request.headers.get('User-Agent', '')
+                )
+        
+        # Log attempt
         log_to_monitoring({
             'event_type': 'LOGIN_ATTEMPT',
             'severity': 'INFO' if user else 'MEDIUM',
-            'source_ip': request.remote_addr,
-            'user_agent': request.headers.get('User-Agent', ''),
             'endpoint': '/login',
             'method': 'POST',
             'payload': json.dumps({'username': username}),
             'vulnerability_type': 'BRUTE_FORCE' if not user else 'NONE',
             'classification': 'Failed Login' if not user else 'Successful Login',
             'blocked': False,
-            'description': f"Login attempt for user '{username}' from {request.remote_addr}",
+            'description': f"Login attempt for user '{username}'",
             'system_version': 'patched',
             'username': username,
             'success': bool(user)
         })
         
         if user:
-            # SUCCESS: Clear failed attempts for this IP
             failed_login_attempts[ip_address] = []
-            session['username'] = user['username']
-            session['role'] = user['role']
-            generate_csrf_token()  # Generate CSRF token on login
             db.close()
             return redirect(url_for('index'))
         else:
-            # FAILURE: Add timestamp to the list
             failed_login_attempts[ip_address].append(current_time)
             db.close()
-            remaining = 3 - len(failed_login_attempts[ip_address])
             return render_template('login.html', error='Invalid credentials')
     
     return render_template('login.html')
@@ -385,14 +431,41 @@ def login():
 @app.route('/logout')
 def logout():
     """Logout user"""
+    # Clean up session tracking
+    session_id = request.cookies.get('session', '')
+    if session_id in session_usage_tracker:
+        del session_usage_tracker[session_id]
+    
     session.clear()
     return redirect(url_for('login'))
 
 @app.route('/alarms')
 def alarms():
-    """View all alarms with filtering - using parameterized queries"""
+    """View all alarms with filtering"""
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    # Track session
+    session_id = request.cookies.get('session', '')
+    if session_id:
+        current_ip = request.remote_addr
+        current_ua = request.headers.get('User-Agent', '')
+        
+        if session_id in session_usage_tracker:
+            prev_ip, prev_ua = session_usage_tracker[session_id]
+            if prev_ip != current_ip or prev_ua != current_ua:
+                log_to_monitoring({
+                    'event_type': 'SESSION_HIJACKING_DETECTED',
+                    'severity': 'CRITICAL',
+                    'endpoint': '/alarms',
+                    'method': 'GET',
+                    'vulnerability_type': 'SESSION_HIJACKING',
+                    'description': f'Session used from different IP/UA',
+                    'system_version': 'patched',
+                    'response_status': 200
+                })
+        
+        session_usage_tracker[session_id] = (current_ip, current_ua)
     
     severity = request.args.get('severity', '')
     status = request.args.get('status', '')
@@ -400,7 +473,6 @@ def alarms():
     db = get_db()
     cursor = db.cursor()
     
-    # Build query with parameters
     query = 'SELECT * FROM alarms WHERE 1=1'
     params = []
     
@@ -455,30 +527,24 @@ def acknowledge_alarm(alarm_id):
     # SECURITY: Validate CSRF token
     csrf_token = request.form.get('csrf_token')
     
-    # *** MONITORING: Log CSRF validation ***
     if not validate_csrf_token(csrf_token):
         log_to_monitoring({
             'event_type': 'CSRF_BLOCKED',
             'severity': 'MEDIUM',
-            'source_ip': request.remote_addr,
-            'user_agent': request.headers.get('User-Agent', ''),
             'endpoint': f'/acknowledge/{alarm_id}',
             'method': 'POST',
             'payload': json.dumps(dict(request.headers)),
             'vulnerability_type': 'CSRF',
             'classification': 'Invalid/Missing CSRF Token',
             'blocked': True,
-            'description': f"CSRF attack blocked from {request.remote_addr}",
-            'system_version': 'patched',
-            'recommended_action': 'Monitor this IP for further attacks'
+            'description': f"CSRF attack blocked",
+            'system_version': 'patched'
         })
         return "CSRF token validation failed", 403
     
-    # Log successful CSRF validation
     log_to_monitoring({
         'event_type': 'CSRF_VALIDATED',
         'severity': 'INFO',
-        'source_ip': request.remote_addr,
         'endpoint': f'/acknowledge/{alarm_id}',
         'method': 'POST',
         'vulnerability_type': 'CSRF',
@@ -490,7 +556,6 @@ def acknowledge_alarm(alarm_id):
     db = get_db()
     cursor = db.cursor()
     
-    # Update alarm with parameterized query
     cursor.execute('''
         UPDATE alarms 
         SET acknowledged = ?, 
@@ -499,7 +564,6 @@ def acknowledge_alarm(alarm_id):
         WHERE id = ?
     ''', (1, session['username'], alarm_id))
     
-    # Log the action
     cursor.execute('''
         INSERT INTO alarm_logs (alarm_id, action, performed_by, details)
         VALUES (?, ?, ?, ?)
@@ -516,13 +580,11 @@ def silence_alarm(alarm_id):
     if 'username' not in session:
         return redirect(url_for('login'))
     
-    # SECURITY: Validate CSRF token
     csrf_token = request.form.get('csrf_token')
     if not validate_csrf_token(csrf_token):
         log_to_monitoring({
             'event_type': 'CSRF_BLOCKED',
             'severity': 'MEDIUM',
-            'source_ip': request.remote_addr,
             'endpoint': f'/silence/{alarm_id}',
             'vulnerability_type': 'CSRF',
             'blocked': True,
@@ -557,13 +619,11 @@ def escalate_alarm(alarm_id):
     if 'username' not in session:
         return redirect(url_for('login'))
     
-    # SECURITY: Validate CSRF token
     csrf_token = request.form.get('csrf_token')
     if not validate_csrf_token(csrf_token):
         log_to_monitoring({
             'event_type': 'CSRF_BLOCKED',
             'severity': 'MEDIUM',
-            'source_ip': request.remote_addr,
             'endpoint': f'/escalate/{alarm_id}',
             'vulnerability_type': 'CSRF',
             'blocked': True,
@@ -573,7 +633,6 @@ def escalate_alarm(alarm_id):
     
     supervisor = request.form.get('supervisor', 'default_supervisor')
     
-    # SECURITY: Validate supervisor name (prevent injection)
     if not re.match(r'^[a-zA-Z0-9_]+$', supervisor):
         return "Invalid supervisor name", 400
     
@@ -600,19 +659,18 @@ def escalate_alarm(alarm_id):
 @app.route('/reports', methods=['GET', 'POST'])
 def reports():
     """
-    SECURITY PATCH: SSRF protection - removed external URLs, server-side templates only
-    *** MONITORING: Any SSRF attempts are logged ***
+    SECURITY PATCH: SSRF protection - server-side templates only
+    *** MONITORING: SSRF attempts logged ***
     """
     if 'username' not in session:
         return redirect(url_for('login'))
 
     if request.method == 'POST':
-        # *** MONITORING: Check if someone tries to inject URL (shouldn't be in form) ***
+        # Check for URL injection attempts
         if 'template_url' in request.form:
             log_to_monitoring({
                 'event_type': 'SSRF_ATTEMPT_BLOCKED',
                 'severity': 'HIGH',
-                'source_ip': request.remote_addr,
                 'endpoint': '/reports',
                 'payload': json.dumps(dict(request.form)),
                 'vulnerability_type': 'SSRF',
@@ -643,7 +701,7 @@ def reports():
             'sections': selected_sections
         }
 
-        # SECURITY PATCH: Use server-side template only (no external URLs)
+        # SECURE: Server-side template only
         env = SandboxedEnvironment(autoescape=select_autoescape(['html']))
         template_content = """
         <html>
@@ -671,7 +729,6 @@ def reports():
         template = env.from_string(template_content)
         report_html = template.render(**report_data)
 
-        # Save report
         report_filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
         report_path = os.path.join(app.config['REPORT_DIR'], report_filename)
         with open(report_path, 'w') as f:
@@ -691,20 +748,16 @@ def export_logs():
         return redirect(url_for('login'))
     
     if request.method == 'POST':
-        # SECURITY: Validate CSRF token
         csrf_token = request.form.get('csrf_token')
         if not validate_csrf_token(csrf_token):
             return "CSRF token validation failed", 403
         
         log_file = request.form.get('log_file', 'alarm.log')
         
-        # *** MONITORING: Log any traversal attempts ***
         if detect_path_traversal(log_file):
             log_to_monitoring({
                 'event_type': 'PATH_TRAVERSAL_BLOCKED',
                 'severity': 'HIGH',
-                'source_ip': request.remote_addr,
-                'user_agent': request.headers.get('User-Agent', ''),
                 'endpoint': '/export_logs',
                 'method': 'POST',
                 'payload': json.dumps({'log_file': log_file}),
@@ -712,12 +765,10 @@ def export_logs():
                 'classification': 'Directory Traversal Blocked',
                 'blocked': True,
                 'description': f"Path traversal attempt blocked: {log_file}",
-                'system_version': 'patched',
-                'recommended_action': 'Monitor IP for further attacks'
+                'system_version': 'patched'
             })
         
         try:
-            # SECURITY PATCH: Sanitize path to prevent directory traversal
             log_path = sanitize_path(log_file, app.config['LOG_DIR'])
             
             if os.path.exists(log_path) and os.path.isfile(log_path):
@@ -729,7 +780,6 @@ def export_logs():
         except Exception as e:
             return f"Error reading log file: {str(e)}", 500
     
-    # List available log files
     try:
         log_files = [f for f in os.listdir(app.config['LOG_DIR']) if os.path.isfile(os.path.join(app.config['LOG_DIR'], f))]
     except:
@@ -739,7 +789,7 @@ def export_logs():
 
 @app.route('/backup', methods=['GET', 'POST'])
 def backup():
-    """SECURITY PATCH: Path traversal protection for backup operations"""
+    """SECURITY PATCH: Path traversal protection"""
     if 'username' not in session:
         return redirect(url_for('login'))
     
@@ -747,7 +797,6 @@ def backup():
         return "Access denied - Admin only", 403
     
     if request.method == 'POST':
-        # SECURITY: Validate CSRF token
         csrf_token = request.form.get('csrf_token')
         if not validate_csrf_token(csrf_token):
             return "CSRF token validation failed", 403
@@ -757,12 +806,10 @@ def backup():
         if action == 'backup':
             backup_name = request.form.get('backup_name', 'backup.db')
             
-            # *** MONITORING: Log traversal attempts ***
             if detect_path_traversal(backup_name):
                 log_to_monitoring({
                     'event_type': 'PATH_TRAVERSAL_BLOCKED',
                     'severity': 'HIGH',
-                    'source_ip': request.remote_addr,
                     'endpoint': '/backup',
                     'payload': json.dumps({'backup_name': backup_name}),
                     'vulnerability_type': 'PATH_TRAVERSAL',
@@ -770,9 +817,8 @@ def backup():
                     'system_version': 'patched'
                 })
             
-            # SECURITY PATCH: Sanitize backup name
             if not re.match(r'^[a-zA-Z0-9._-]+\.db$', backup_name):
-                return "Invalid backup name. Use only letters, numbers, and .db extension", 400
+                return "Invalid backup name", 400
             
             try:
                 backup_path = sanitize_path(backup_name, 'backups')
@@ -785,12 +831,10 @@ def backup():
         elif action == 'restore':
             restore_file = request.form.get('restore_file', '')
             
-            # *** MONITORING ***
             if detect_path_traversal(restore_file):
                 log_to_monitoring({
                     'event_type': 'PATH_TRAVERSAL_BLOCKED',
                     'severity': 'HIGH',
-                    'source_ip': request.remote_addr,
                     'endpoint': '/backup',
                     'payload': json.dumps({'restore_file': restore_file}),
                     'vulnerability_type': 'PATH_TRAVERSAL',
@@ -799,7 +843,6 @@ def backup():
                 })
             
             try:
-                # SECURITY PATCH: Sanitize restore path
                 restore_path = sanitize_path(restore_file, 'backups')
                 
                 if os.path.exists(restore_path):
@@ -813,7 +856,6 @@ def backup():
             except Exception as e:
                 return f"Restore failed: {str(e)}", 500
     
-    # List backups
     try:
         backups = [f for f in os.listdir('backups') if f.endswith('.db')]
     except:
@@ -823,7 +865,7 @@ def backup():
 
 @app.route('/firmware_restore', methods=['GET', 'POST'])
 def firmware_restore():
-    """SECURITY PATCH: Path traversal protection for firmware restore"""
+    """SECURITY PATCH: Path traversal protection"""
     if 'username' not in session:
         return redirect(url_for('login'))
     
@@ -831,19 +873,16 @@ def firmware_restore():
         return "Access denied - Admin only", 403
     
     if request.method == 'POST':
-        # SECURITY: Validate CSRF token
         csrf_token = request.form.get('csrf_token')
         if not validate_csrf_token(csrf_token):
             return "CSRF token validation failed", 403
         
         firmware_path = request.form.get('firmware_path', '')
         
-        # *** MONITORING: Log traversal attempts ***
         if detect_path_traversal(firmware_path) or firmware_path.startswith('/'):
             log_to_monitoring({
                 'event_type': 'PATH_TRAVERSAL_BLOCKED',
                 'severity': 'CRITICAL',
-                'source_ip': request.remote_addr,
                 'endpoint': '/firmware_restore',
                 'payload': json.dumps({'firmware_path': firmware_path}),
                 'vulnerability_type': 'PATH_TRAVERSAL',
@@ -854,7 +893,6 @@ def firmware_restore():
             })
         
         try:
-            # SECURITY PATCH: Only allow firmware from specific directory
             safe_path = sanitize_path(firmware_path, 'firmware')
             
             with open(safe_path, 'r') as f:
@@ -875,7 +913,7 @@ def firmware_restore():
 @app.route('/api/search_alarms', methods=['GET'])
 def search_alarms_api():
     """
-    SECURITY PATCH: Parameterized queries prevent SQL injection regardless of encoding
+    SECURITY PATCH: Parameterized queries
     *** MONITORING: SQL injection attempts tracked ***
     """
     if 'username' not in session:
@@ -886,7 +924,6 @@ def search_alarms_api():
     encoding = request.headers.get('Content-Encoding', 'utf-8')
     
     search_term_for_monitoring = search_term
-    # Check for special encoding
     if encoding.lower() in ['utf-16', 'utf-7', 'utf-16le', 'utf-16be']:
         try:
             search_term_bytes = search_term.encode('latin-1')
@@ -894,26 +931,24 @@ def search_alarms_api():
         except:
             pass
             
-    # *** MONITORING: Detect SQL injection attempts ***
     if detect_sqli_pattern(search_term_for_monitoring):
         log_to_monitoring({
             'event_type': 'SQL_INJECTION_BLOCKED',
             'severity': 'CRITICAL',
-            'source_ip': request.remote_addr,
             'endpoint': '/api/search_alarms',
             'method': 'GET',
             'payload': json.dumps({'q': search_term_for_monitoring, 'encoding': encoding}),
             'vulnerability_type': 'SQL_INJECTION',
             'classification': 'SQLi-Encoded',
             'blocked': True,
-            'description': f"SQL injection attempt with {encoding} blocked in search",
+            'description': f"SQL injection attempt with {encoding} blocked",
             'system_version': 'patched'
         })
     
     db = get_db()
     cursor = db.cursor()
     
-    # SECURE: Parameterized query - immune to encoding-based SQLi
+    # SECURE: Parameterized query
     cursor.execute('''
         SELECT * FROM alarms 
         WHERE description LIKE ? OR location LIKE ?
@@ -933,9 +968,13 @@ def serve_secret():
 if __name__ == '__main__':
     init_db()
     print("\n" + "="*60)
-    print("PATCHED SCADA APPLICATION (WITH MONITORING)")
+    print("PATCHED SCADA APPLICATION (WITH WORKING MONITORING)")
     print("="*60)
     print("Application: http://localhost:5001")
     print("Monitoring: http://localhost:5002")
+    print("="*60)
+    print("\n✅ FIXED: Cookie manipulation detection")
+    print("✅ FIXED: Session hijacking detection")
+    print("✅ FIXED: Directory brute-forcing detection")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=5001, debug=False)
