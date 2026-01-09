@@ -5,8 +5,9 @@
 {% block content %}
 <div class="card">
     <h2>All Alarms</h2>
-    
-    <form method="GET" action="{{ url_for('alarms') }}" style="margin-bottom: 2rem;">
+
+    <!-- Filters Section -->
+    <form method="GET" action="{{ url_for('alarms') }}" style="margin-bottom: 1rem;">
         <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 1rem;">
             <div class="form-group" style="margin: 0;">
                 <label for="severity">Filter by Severity</label>
@@ -18,7 +19,7 @@
                     <option value="low">Low</option>
                 </select>
             </div>
-            
+
             <div class="form-group" style="margin: 0;">
                 <label for="status">Filter by Status</label>
                 <select id="status" name="status">
@@ -27,13 +28,31 @@
                     <option value="resolved">Resolved</option>
                 </select>
             </div>
-            
+
             <div style="display: flex; align-items: flex-end;">
                 <button type="submit" class="btn btn-primary">Apply Filters</button>
             </div>
         </div>
     </form>
-    
+
+    <!-- Search Section -->
+    <div style="margin-bottom: 2rem;">
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; max-width: 600px;">
+            <div class="form-group" style="margin: 0;">
+                <label for="search_term">Search Alarms</label>
+                <input type="text" id="search_term" placeholder="Enter search term..."
+                    style="padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; width: 100%;">
+            </div>
+
+            <div style="display: flex; align-items: flex-end;">
+                <button type="button" onclick="searchAlarms()" class="btn btn-primary"
+                    style="background: #28a745;">Search</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="search_results" style="margin-bottom: 1rem;"></div>
+
     {% if alarms %}
     <table>
         <thead>
@@ -59,17 +78,18 @@
                 <td>{{ alarm.triggered_at }}</td>
                 <td>
                     {% if alarm.acknowledged %}
-                        ✅ Acknowledged
+                    ✅ Acknowledged
                     {% elif alarm.silenced %}
-                        🔇 Silenced
+                    🔇 Silenced
                     {% elif alarm.escalated %}
-                        ⬆️ Escalated
+                    ⬆️ Escalated
                     {% else %}
-                        🔴 Active
+                    🔴 Active
                     {% endif %}
                 </td>
                 <td>
-                    <a href="{{ url_for('alarm_detail', alarm_id=alarm.id) }}" class="btn btn-primary" style="padding: 0.4rem 0.8rem;">View</a>
+                    <a href="{{ url_for('alarm_detail', alarm_id=alarm.id) }}" class="btn btn-primary"
+                        style="padding: 0.4rem 0.8rem;">View</a>
                 </td>
             </tr>
             {% endfor %}
@@ -79,4 +99,86 @@
     <p style="text-align: center; color: #666; padding: 2rem;">No alarms found</p>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function searchAlarms() {
+        const searchTerm = document.getElementById('search_term').value;
+        const resultsDiv = document.getElementById('search_results');
+
+        if (!searchTerm) {
+            resultsDiv.innerHTML = '<p style="color: #ff6b6b; padding: 1rem; background: #ffe0e0; border-radius: 4px;">Please enter a search term</p>';
+            return;
+        }
+
+        resultsDiv.innerHTML = '<p style="padding: 1rem;">Searching...</p>';
+
+        // Make API call to /api/search_alarms
+        fetch(`/api/search_alarms?q=${encodeURIComponent(searchTerm)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    resultsDiv.innerHTML = `<p style="color: #ff6b6b; padding: 1rem; background: #ffe0e0; border-radius: 4px;">Error: ${data.error}</p>`;
+                    return;
+                }
+
+                if (data.results && data.results.length > 0) {
+                    resultsDiv.innerHTML = `
+                    <div style="background: #e8f5e9; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+                        <strong>Search Results (${data.results.length} found):</strong>
+                        <button onclick="clearSearch()" style="float: right; padding: 0.3rem 0.8rem; background: #666; color: white; border: none; border-radius: 4px; cursor: pointer;">Clear</button>
+                    </div>
+                `;
+
+                    // Update the table with search results
+                    const tbody = document.querySelector('table tbody');
+                    if (tbody) {
+                        tbody.innerHTML = data.results.map(alarm => `
+                        <tr>
+                            <td>${alarm.id}</td>
+                            <td>${alarm.alarm_code}</td>
+                            <td><span class="badge badge-${alarm.severity}">${alarm.severity.toUpperCase()}</span></td>
+                            <td>${alarm.description}</td>
+                            <td>${alarm.location}</td>
+                            <td>${alarm.triggered_at}</td>
+                            <td>
+                                ${alarm.acknowledged ? '✅ Acknowledged' :
+                                alarm.silenced ? '🔇 Silenced' :
+                                    alarm.escalated ? '⬆️ Escalated' : '🔴 Active'}
+                            </td>
+                            <td>
+                                <a href="/alarm/${alarm.id}" class="btn btn-primary" style="padding: 0.4rem 0.8rem;">View</a>
+                            </td>
+                        </tr>
+                    `).join('');
+                    }
+                } else {
+                    resultsDiv.innerHTML = '<p style="color: #666; padding: 1rem; background: #f5f5f5; border-radius: 4px;">No results found</p>';
+                }
+            })
+            .catch(error => {
+                resultsDiv.innerHTML = `<p style="color: #ff6b6b; padding: 1rem; background: #ffe0e0; border-radius: 4px;">Error: ${error.message}</p>`;
+            });
+    }
+
+    function clearSearch() {
+        document.getElementById('search_term').value = '';
+        document.getElementById('search_results').innerHTML = '';
+        location.reload();
+    }
+
+    // Allow Enter key to trigger search
+    document.addEventListener('DOMContentLoaded', function () {
+        const searchInput = document.getElementById('search_term');
+        if (searchInput) {
+            searchInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    searchAlarms();
+                }
+            });
+        }
+    });
+</script>
 {% endblock %}

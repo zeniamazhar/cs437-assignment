@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,27 +11,27 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
         }
-        
+
         .navbar {
             background: rgba(255, 255, 255, 0.95);
             padding: 1rem 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .navbar h1 {
             color: #667eea;
             font-size: 1.5rem;
         }
-        
+
         .navbar nav a {
             color: #333;
             text-decoration: none;
@@ -39,32 +40,32 @@
             border-radius: 5px;
             transition: all 0.3s;
         }
-        
+
         .navbar nav a:hover {
             background: #667eea;
             color: white;
         }
-        
+
         .container {
             max-width: 1200px;
             margin: 2rem auto;
             padding: 0 2rem;
         }
-        
+
         .card {
             background: white;
             border-radius: 10px;
             padding: 2rem;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
             margin-bottom: 2rem;
         }
-        
+
         .card h2 {
             color: #667eea;
             margin-bottom: 1.5rem;
             font-size: 1.8rem;
         }
-        
+
         .btn {
             padding: 0.7rem 1.5rem;
             border: none;
@@ -75,165 +76,171 @@
             text-decoration: none;
             display: inline-block;
         }
-        
+
         .btn-primary {
             background: #667eea;
             color: white;
         }
-        
+
         .btn-primary:hover {
             background: #5568d3;
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
         }
-        
+
         .btn-danger {
             background: #e74c3c;
             color: white;
         }
-        
+
         .btn-danger:hover {
             background: #c0392b;
         }
-        
+
         .btn-warning {
             background: #f39c12;
             color: white;
         }
-        
+
         .btn-success {
             background: #27ae60;
             color: white;
         }
-        
+
         table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 1rem;
         }
-        
-        table th, table td {
+
+        table th,
+        table td {
             padding: 1rem;
             text-align: left;
             border-bottom: 1px solid #eee;
         }
-        
+
         table th {
             background: #f8f9fa;
             color: #667eea;
             font-weight: 600;
         }
-        
+
         table tr:hover {
             background: #f8f9fa;
         }
-        
+
         .alert {
             padding: 1rem;
             border-radius: 5px;
             margin-bottom: 1rem;
         }
-        
+
         .alert-error {
             background: #fee;
             color: #c33;
             border: 1px solid #fcc;
         }
-        
+
         .alert-success {
             background: #efe;
             color: #3c3;
             border: 1px solid #cfc;
         }
-        
+
         .form-group {
             margin-bottom: 1.5rem;
         }
-        
+
         .form-group label {
             display: block;
             margin-bottom: 0.5rem;
             color: #555;
             font-weight: 500;
         }
-        
-        .form-group input, .form-group select, .form-group textarea {
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
             width: 100%;
             padding: 0.7rem;
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 1rem;
         }
-        
-        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
             outline: none;
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
-        
+
         .stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 1rem;
             margin-bottom: 2rem;
         }
-        
+
         .stat-card {
             background: white;
             padding: 1.5rem;
             border-radius: 10px;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
             text-align: center;
         }
-        
+
         .stat-card h3 {
             color: #667eea;
             font-size: 2rem;
             margin-bottom: 0.5rem;
         }
-        
+
         .stat-card p {
             color: #666;
         }
-        
+
         .badge {
             padding: 0.3rem 0.7rem;
             border-radius: 20px;
             font-size: 0.85rem;
             font-weight: 600;
         }
-        
+
         .badge-critical {
             background: #e74c3c;
             color: white;
         }
-        
+
         .badge-high {
             background: #f39c12;
             color: white;
         }
-        
+
         .badge-medium {
             background: #3498db;
             color: white;
         }
-        
+
         .badge-low {
             background: #95a5a6;
             color: white;
         }
-        
+
         .user-info {
             display: flex;
             align-items: center;
             gap: 1rem;
         }
-        
+
         .user-info span {
             color: #666;
         }
     </style>
 </head>
+
 <body>
     {% if session.username %}
     <div class="navbar">
@@ -254,9 +261,11 @@
         </nav>
     </div>
     {% endif %}
-    
+
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+    {% block scripts %}{% endblock %}
 </body>
+
 </html>
