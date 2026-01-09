@@ -723,6 +723,8 @@
                         <p><strong>Timestamp:</strong> ${new Date(event.timestamp).toLocaleString()}</p>
                         <p><strong>Source IP:</strong> <span class="code">${event.source_ip}</span></p>
                         <p><strong>System:</strong> <span class="badge ${event.system_version === 'vulnerable' ? 'vulnerable' : 'blocked'}">${event.system_version}</span></p>
+                        <p><strong>User-Agent:</strong> <span class="code" style="word-break: break-all;">${event.user_agent || 'N/A'}</span></p>
+                        <p><strong>Session Cookie:</strong> <span class="code" style="word-break: break-all;">${event.session_id || 'N/A'}</span></p>
                     </div>
                     
                     <div class="detail-section">

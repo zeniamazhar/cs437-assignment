@@ -1,11 +1,6 @@
 """
 Enhanced Security Monitoring System for SCADA - FULLY FIXED VERSION
-All issues resolved:
-1. Proper brute force detection (only flags after threshold)
-2. Fixed response_actions table schema
-3. No duplicate alert rules
-4. Recommended actions visible in dashboard
-5. IP blocking works correctly
+Added: COOKIE_MANIPULATION, SESSION_HIJACKING, DIRECTORY_BRUTEFORCE detections
 """
 
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session
@@ -34,7 +29,7 @@ VIRUSTOTAL_ENABLED = VIRUSTOTAL_API_KEY != 'YOUR_API_KEY_HERE'
 failed_login_tracker = defaultdict(list)  # {ip: [timestamp1, timestamp2, ...]}
 blocked_ips = set()
 
-# RECOMMENDED ACTIONS DATABASE
+# RECOMMENDED ACTIONS DATABASE - ADDED THREE NEW TYPES
 RECOMMENDED_ACTIONS = {
     'SQL_INJECTION': {
         'severity': 'CRITICAL',
@@ -99,6 +94,31 @@ RECOMMENDED_ACTIONS = {
         'long_term': 'Sandbox file processing, implement virus scanning',
         'detection': 'Check file signatures, not just extensions',
         'prevention': 'Allowlist file types, scan uploads, store outside webroot'
+    },
+    # === ADDED THREE NEW DETECTION TYPES ===
+    'COOKIE_MANIPULATION': {
+        'severity': 'HIGH',
+        'immediate': 'Invalidate session, block IP temporarily',
+        'short_term': 'Implement secure cookie attributes (HttpOnly, Secure, SameSite)',
+        'long_term': 'Use signed cookies, implement session fingerprinting',
+        'detection': 'Monitor for modified session cookies, invalid signatures',
+        'prevention': 'Sign cookies, validate session integrity'
+    },
+    'SESSION_HIJACKING': {
+        'severity': 'CRITICAL',
+        'immediate': 'Terminate session, force re-authentication, block IP',
+        'short_term': 'Implement session fingerprinting (IP, User-Agent)',
+        'long_term': 'Mutual TLS, hardware token authentication',
+        'detection': 'Monitor for session use from multiple IPs/browsers',
+        'prevention': 'Session binding, short session timeouts, re-auth for sensitive ops'
+    },
+    'DIRECTORY_BRUTEFORCE': {
+        'severity': 'MEDIUM',
+        'immediate': 'Block IP after 10 404s in 1 minute',
+        'short_term': 'Implement rate limiting on file access',
+        'long_term': 'Web Application Firewall, hide directory structure',
+        'detection': 'Monitor for sequential 404 errors from same IP',
+        'prevention': 'Rate limiting, disable directory listing'
     }
 }
 
@@ -213,7 +233,7 @@ def init_monitor_db():
         action_taken TEXT,
         action_timestamp DATETIME,
 
-        -- 🔹🔹🔹 FALSE POSITIVE SUPPORT (ADDED) 🔹🔹🔹
+        -- FALSE POSITIVE SUPPORT
         false_positive BOOLEAN DEFAULT 0,
         notes TEXT,
         admin_reviewed BOOLEAN DEFAULT 0
@@ -320,13 +340,17 @@ def init_monitor_db():
     # FIXED: Delete existing rules to prevent duplicates
     cursor.execute('DELETE FROM alert_rules')
     
-    # Insert default alert rules (no duplicates due to UNIQUE constraint)
+    # Insert default alert rules (including the three new ones)
     default_rules = [
         ('Failed Login Threshold', 'BRUTE_FORCE', 5, 300, 'BLOCK_IP', 1, 1),
         ('CSRF Attack Threshold', 'CSRF', 3, 600, 'ALERT_ADMIN', 1, 0),
         ('Path Traversal Threshold', 'PATH_TRAVERSAL', 3, 300, 'BLOCK_IP', 1, 1),
         ('SSRF Attempt Threshold', 'SSRF', 2, 600, 'BLOCK_IP', 1, 1),
         ('SQLi Attempt Threshold', 'SQL_INJECTION', 3, 300, 'BLOCK_IP', 1, 1),
+        # === ADDED THREE NEW ALERT RULES ===
+        ('Cookie Manipulation Threshold', 'COOKIE_MANIPULATION', 3, 300, 'BLOCK_IP', 1, 1),
+        ('Session Hijacking Threshold', 'SESSION_HIJACKING', 2, 600, 'BLOCK_IP', 1, 1),
+        ('Directory Bruteforce Threshold', 'DIRECTORY_BRUTEFORCE', 10, 60, 'BLOCK_IP', 1, 1),
     ]
     
     for rule in default_rules:
@@ -345,6 +369,7 @@ def init_monitor_db():
     print("   - Proper brute force detection enabled")
     print("   - All table schemas corrected")
     print("   - Duplicate rules removed")
+    print("   - Added: COOKIE_MANIPULATION, SESSION_HIJACKING, DIRECTORY_BRUTEFORCE")
 
 def auto_block_ip(ip_address, reason, duration_minutes=60, performed_by='SYSTEM'):
     """Automatically block an IP address"""
@@ -775,11 +800,9 @@ def take_action():
             
             cursor.execute('''
                 INSERT INTO response_actions
-                (event_id, action_type, action_details, performed_by, automatic, can_reverse, reversal_method)
-                VALUES (?, ?, ?, ?, 0, 1, ?)
-            ''', (event_id, 'MARK_FALSE_POSITIVE', action_detail, performed_by,
-                f'UPDATE security_events SET false_positive = 1 - false_positive WHERE id = {event_id}'))
-
+                (event_id, action_type, action_details, performed_by, automatic, can_reverse)
+                VALUES (?, ?, ?, ?, 0, 1)
+            ''', (event_id, 'MARK_FALSE_POSITIVE', action_detail, performed_by))
             
         elif action_type == 'DELETE_EVENT':
             event_id = data.get('event_id')
@@ -920,5 +943,9 @@ if __name__ == '__main__':
     print("✅ Removed duplicate alert rules")
     print("✅ Recommended actions visible in dashboard")
     print("✅ IP blocking works correctly")
+    print("\nNew detections added:")
+    print("✅ COOKIE_MANIPULATION detection")
+    print("✅ SESSION_HIJACKING detection")
+    print("✅ DIRECTORY_BRUTEFORCE detection")
     print("=" * 60)
     app.run(host='0.0.0.0', port=5002, debug=True)

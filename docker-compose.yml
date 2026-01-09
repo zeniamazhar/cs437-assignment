@@ -32,7 +32,6 @@ services:
     environment:
       - FLASK_ENV=production
       - DATABASE_PATH=/app/data/scada_alarms.db
-      - VIRUSTOTAL_API_KEY=bee5d856c626b6c9dc5f96befa5ff3332091df41c23562bc4348867e4d0751a2
     networks:
       - scada-network
     restart: unless-stopped
@@ -48,8 +47,6 @@ services:
     container_name: scada_monitoring
     ports:
       - "5002:5002"
-    environment:
-      - VIRUSTOTAL_API_KEY=bee5d856c626b6c9dc5f96befa5ff3332091df41c23562bc4348867e4d0751a2
     volumes:
       - monitoring-data:/app/data
     networks:

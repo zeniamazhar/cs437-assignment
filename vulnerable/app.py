@@ -25,14 +25,19 @@ import json
 import base64
 import codecs
 from collections import defaultdict
-file_access_counter = defaultdict(int)
-
+import time
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
 app.config['DATABASE'] = 'scada_alarms.db'
 app.config['LOG_DIR'] = 'logs'
 app.config['REPORT_DIR'] = 'reports'
+
+# Session tracking for hijacking detection
+session_fingerprints = {}  # {session_id: {'ip': '...', 'user_agent': '...'}}
+
+# Track 404 errors per IP for directory bruteforce detection
+file_access_counter = defaultdict(lambda: {'attempts': [], 'last_reset': time.time()})
 
 
 # *** IP BLOCKING FUNCTIONALITY ***
@@ -102,7 +107,6 @@ def log_to_monitoring(event_data):
     except Exception as e:
         # Don't let monitoring failures break the app
         print("MONITORING ERROR:", e)
-
         pass
 
 def scan_file_with_virustotal(file_path):
@@ -156,6 +160,77 @@ def detect_path_traversal(path):
     if not path:
         return False
     return '..' in path or path.startswith('/') or path.startswith('\\')
+
+def detect_cookie_manipulation(request):
+    """Detect cookie manipulation attempts - FIXED"""
+    cookies = request.cookies
+
+    # Check for suspicious patterns
+    suspicious_patterns = [
+        'admin=true', 'role=admin', 'authenticated=1',
+        '../', 'script>', 'javascript:', '%00'
+    ]
+    
+    for cookie_name, cookie_value in cookies.items():
+        cookie_str = f"{cookie_name}={cookie_value}"
+        
+        # Check for suspicious patterns
+        for pattern in suspicious_patterns:
+            if pattern in cookie_str.lower():
+                return True, cookie_str
+        
+        # FIXED: Check cookie value length (should trigger for 600 length)
+        if len(cookie_value) >= 500:
+            return True, f"{cookie_name}={cookie_value[:100]}... (length: {len(cookie_value)})"
+    
+    return False, None
+
+def detect_session_hijacking(request, session_id):
+    """Detect session hijacking attempts"""
+    current_ip = request.remote_addr
+    current_ua = request.headers.get('User-Agent', '')
+    
+    if session_id in session_fingerprints:
+        stored = session_fingerprints[session_id]
+        
+        # Check if IP or User-Agent changed
+        if stored['ip'] != current_ip or stored['user_agent'] != current_ua:
+            return True, {
+                'original_ip': stored['ip'],
+                'current_ip': current_ip,
+                'original_ua': stored['user_agent'][:100],
+                'current_ua': current_ua[:100]
+            }
+    else:
+        # First time seeing this session - store fingerprint
+        session_fingerprints[session_id] = {
+            'ip': current_ip,
+            'user_agent': current_ua
+        }
+    
+    return False, None
+
+def detect_directory_bruteforce(ip_address, is_404=False):
+    """Detect directory bruteforce attacks"""
+    current_time = time.time()
+    threshold = 10  # 10 404s
+    time_window = 60  # in 1 minute
+    
+    # Clean old attempts
+    file_access_counter[ip_address]['attempts'] = [
+        t for t in file_access_counter[ip_address]['attempts']
+        if current_time - t < time_window
+    ]
+    
+    if is_404:
+        file_access_counter[ip_address]['attempts'].append(current_time)
+    
+    attempt_count = len(file_access_counter[ip_address]['attempts'])
+    
+    if attempt_count >= threshold:
+        return True, attempt_count
+    
+    return False, attempt_count
 
 def get_db():
     """Get database connection"""
@@ -243,11 +318,78 @@ def init_db():
     db.commit()
     db.close()
 
+@app.errorhandler(404)
+def handle_404(e):
+    """Handle 404 errors and detect directory bruteforce"""
+    ip_address = request.remote_addr
+    
+    is_bruteforce, attempt_count = detect_directory_bruteforce(ip_address, is_404=True)
+    
+    if is_bruteforce:
+        log_to_monitoring({
+            'event_type': 'DIRECTORY_BRUTEFORCE',
+            'severity': 'MEDIUM',
+            'source_ip': ip_address,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'response_status': 404,
+            'vulnerability_type': 'DIRECTORY_BRUTEFORCE',
+            'classification': 'Sequential 404 Errors',
+            'blocked': False,
+            'description': f'Directory bruteforce detected: {attempt_count} 404 errors in 60 seconds',
+            'system_version': 'vulnerable',
+            'attack_pattern': f'{attempt_count} failed file access attempts',
+            'referer': request.headers.get('Referer', '')
+        })
+    
+    return "Not Found", 404
+
 @app.route('/')
 def index():
     """Main dashboard"""
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
     
     db = get_db()
     cursor = db.cursor()
@@ -385,6 +527,46 @@ def alarms():
     if 'username' not in session:
         return redirect(url_for('login'))
     
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
+    
     severity = request.args.get('severity', '')
     status = request.args.get('status', '')
     
@@ -416,6 +598,46 @@ def alarm_detail(alarm_id):
     if 'username' not in session:
         return redirect(url_for('login'))
     
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
+    
     db = get_db()
     cursor = db.cursor()
     
@@ -441,6 +663,46 @@ def acknowledge_alarm(alarm_id):
     """
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
     
     # *** MONITORING: Log CSRF vulnerability ***
     csrf_token = request.form.get('csrf_token', '')
@@ -494,6 +756,46 @@ def silence_alarm(alarm_id):
     if 'username' not in session:
         return redirect(url_for('login'))
     
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
+    
     # *** MONITORING: Log CSRF vulnerability ***
     log_to_monitoring({
         'event_type': 'CSRF_VULNERABLE_REQUEST',
@@ -538,6 +840,46 @@ def escalate_alarm(alarm_id):
     if 'username' not in session:
         return redirect(url_for('login'))
     
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
+    
     # *** MONITORING: Log CSRF vulnerability ***
     log_to_monitoring({
         'event_type': 'CSRF_VULNERABLE_REQUEST',
@@ -579,6 +921,46 @@ def reports():
     """
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
     
     if request.method == 'POST':
         report_type = request.form.get('report_type', 'summary')
@@ -692,6 +1074,46 @@ def export_logs():
     if 'username' not in session:
         return redirect(url_for('login'))
     
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
+    
     if request.method == 'POST':
         log_file = request.form.get('log_file', 'alarm.log')
         
@@ -744,6 +1166,46 @@ def backup():
     
     if session.get('role') != 'admin':
         return "Access denied - Admin only", 403
+    
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
     
     if request.method == 'POST':
         action = request.form.get('action', 'backup')
@@ -820,6 +1282,46 @@ def firmware_restore():
     
     if session.get('role') != 'admin':
         return "Access denied - Admin only", 403
+    
+    # Check for cookie manipulation
+    is_manipulated, cookie_data = detect_cookie_manipulation(request)
+    if is_manipulated:
+        log_to_monitoring({
+            'event_type': 'COOKIE_MANIPULATION',
+            'severity': 'HIGH',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'COOKIE_MANIPULATION',
+            'classification': 'Suspicious Cookie Pattern',
+            'blocked': False,
+            'description': f'Cookie manipulation detected: {cookie_data}',
+            'system_version': 'vulnerable',
+            'cookies': json.dumps(dict(request.cookies)),
+            'session_id': request.cookies.get('session', '')
+        })
+    
+    # Check for session hijacking
+    session_id = request.cookies.get('session', '')
+    is_hijacked, hijack_data = detect_session_hijacking(request, session_id)
+    if is_hijacked:
+        log_to_monitoring({
+            'event_type': 'SESSION_HIJACKING',
+            'severity': 'CRITICAL',
+            'source_ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'endpoint': request.path,
+            'method': request.method,
+            'vulnerability_type': 'SESSION_HIJACKING',
+            'classification': 'Session Fingerprint Mismatch',
+            'blocked': False,
+            'description': f'Session hijacking detected: IP changed from {hijack_data["original_ip"]} to {hijack_data["current_ip"]}',
+            'system_version': 'vulnerable',
+            'attack_metadata': json.dumps(hijack_data),
+            'session_id': session_id,
+            'username': session.get('username', '')
+        })
     
     if request.method == 'POST':
         firmware_path = request.form.get('firmware_path', '')
@@ -915,6 +1417,7 @@ def search_alarms_api():
 def serve_report_template():
     with open('templates/report_template.html', 'r') as f:
         return f.read(), 200, {'Content-Type': 'text/plain'}
+
 @app.route('/secret')
 def serve_secret():
     file_path = 'templates/private_data.html'
