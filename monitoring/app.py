@@ -174,32 +174,51 @@ def init_monitor_db():
     # Main security events table with ALL required columns
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS security_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            event_type TEXT NOT NULL,
-            severity TEXT NOT NULL,
-            source_ip TEXT NOT NULL,
-            user_agent TEXT,
-            endpoint TEXT NOT NULL,
-            method TEXT NOT NULL,
-            request_headers TEXT,
-            request_payload TEXT,
-            response_status INTEGER,
-            session_id TEXT,
-            username TEXT,
-            vulnerability_type TEXT NOT NULL,
-            attack_classification TEXT,
-            blocked BOOLEAN DEFAULT 0,
-            auto_blocked BOOLEAN DEFAULT 0,
-            description TEXT,
-            system_version TEXT,
-            recommended_action TEXT,
-            action_taken TEXT,
-            action_timestamp DATETIME,
-            false_positive BOOLEAN DEFAULT 0,
-            notes TEXT,
-            admin_reviewed BOOLEAN DEFAULT 0
-        )
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        -- Core metadata
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        event_type TEXT NOT NULL,
+        severity TEXT NOT NULL,
+
+        -- Request origin
+        source_ip TEXT NOT NULL,
+        user_agent TEXT,
+        endpoint TEXT NOT NULL,
+        method TEXT NOT NULL,
+
+        -- Request data
+        request_headers TEXT,
+        request_payload TEXT,
+        response_status INTEGER,
+
+        -- Session / user info
+        session_id TEXT,
+        username TEXT,
+
+        -- Security classification
+        vulnerability_type TEXT NOT NULL,
+        attack_classification TEXT,
+
+        -- Blocking info
+        blocked BOOLEAN DEFAULT 0,
+        auto_blocked BOOLEAN DEFAULT 0,
+
+        -- Description & system metadata
+        description TEXT,
+        system_version TEXT,
+
+        -- Recommendations & actions
+        recommended_action TEXT,
+        action_taken TEXT,
+        action_timestamp DATETIME,
+
+        -- 🔹🔹🔹 FALSE POSITIVE SUPPORT (ADDED) 🔹🔹🔹
+        false_positive BOOLEAN DEFAULT 0,
+        notes TEXT,
+        admin_reviewed BOOLEAN DEFAULT 0
+    );
+
     ''')
     
     # IP blacklist/whitelist
@@ -734,19 +753,33 @@ def take_action():
             event_id = data.get('event_id')
             notes = data.get('notes', '')
             
-            cursor.execute('''
-                UPDATE security_events
-                SET false_positive = 1, notes = ?, admin_reviewed = 1
-                WHERE id = ?
-            ''', (notes, event_id))
+            cursor.execute('SELECT false_positive FROM security_events WHERE id = ?', (event_id,))
+            current_status = cursor.fetchone()
+            
+            if current_status and current_status[0] == 1:
+                cursor.execute('''
+                    UPDATE security_events
+                    SET false_positive = 0, admin_reviewed = 1
+                    WHERE id = ?
+                ''', (event_id,))
+                result['message'] = f'Event {event_id} unmarked as false positive'
+                action_detail = f'Unmarked event {event_id} as false positive'
+            else:
+                cursor.execute('''
+                    UPDATE security_events
+                    SET false_positive = 1, notes = ?, admin_reviewed = 1
+                    WHERE id = ?
+                ''', (notes, event_id))
+                result['message'] = f'Event {event_id} marked as false positive'
+                action_detail = f'Marked event {event_id} as false positive: {notes}'
             
             cursor.execute('''
                 INSERT INTO response_actions
-                (event_id, action_type, action_details, performed_by, automatic, can_reverse)
-                VALUES (?, ?, ?, ?, 0, 1)
-            ''', (event_id, 'MARK_FALSE_POSITIVE', notes, performed_by))
-            
-            result['message'] = f'Event {event_id} marked as false positive'
+                (event_id, action_type, action_details, performed_by, automatic, can_reverse, reversal_method)
+                VALUES (?, ?, ?, ?, 0, 1, ?)
+            ''', (event_id, 'MARK_FALSE_POSITIVE', action_detail, performed_by,
+                f'UPDATE security_events SET false_positive = 1 - false_positive WHERE id = {event_id}'))
+
             
         elif action_type == 'DELETE_EVENT':
             event_id = data.get('event_id')
