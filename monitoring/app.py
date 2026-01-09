@@ -1,13 +1,7 @@
 """
-Enhanced Security Monitoring System for SCADA - COMPLETE FIXED VERSION
-Fully satisfies all assignment requirements:
-- Monitors ALL attack vectors (vulnerable/patched endpoints, login, brute-force, cookies, sessions)
-- Detailed attack metadata and classification
-- Manual AND automated response mechanisms
-- Reversible actions tracking
-- Session hijacking detection
-- Directory bruteforcing detection
-- Cookie manipulation detection
+Enhanced Security Monitoring System - SIMPLIFIED VERSION
+This version TRUSTS the vulnerability data sent by the SCADA apps
+instead of trying to re-detect everything.
 """
 
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session
@@ -15,12 +9,10 @@ import sqlite3
 from datetime import datetime, timedelta
 import json
 import hashlib
-import requests
 import os
 from collections import defaultdict
 import time
 import re
-from urllib.parse import urlparse
 
 app = Flask(__name__)
 app.config['MONITOR_DB'] = '/app/data/security_monitor.db'
@@ -30,14 +22,7 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
-# VirusTotal API Configuration
-VIRUSTOTAL_API_KEY = os.environ.get('VIRUSTOTAL_API_KEY', 'YOUR_API_KEY_HERE')
-VIRUSTOTAL_ENABLED = VIRUSTOTAL_API_KEY != 'YOUR_API_KEY_HERE'
-
 # Rate limiting tracking
-failed_login_tracker = defaultdict(list)
-file_access_tracker = defaultdict(list)  # Track file access patterns
-session_manipulation_tracker = defaultdict(list)  # Track session attacks
 blocked_ips = set()
 
 # RECOMMENDED ACTIONS DATABASE
@@ -122,36 +107,6 @@ RECOMMENDED_ACTIONS = {
         'reversible': True,
         'automated': True
     },
-    'XSS': {
-        'severity': 'MEDIUM',
-        'immediate': 'Alert administrator, sanitize affected data',
-        'short_term': 'Implement output encoding for all user data',
-        'long_term': 'Content Security Policy, sanitization libraries',
-        'detection': 'Monitor for script tags and JavaScript in inputs',
-        'prevention': 'Encode all output, validate input types',
-        'reversible': False,
-        'automated': False
-    },
-    'XXE': {
-        'severity': 'CRITICAL',
-        'immediate': 'Block IP, disable XML external entity processing',
-        'short_term': 'Configure XML parser securely',
-        'long_term': 'Use JSON instead of XML, implement XML validation',
-        'detection': 'Monitor for DOCTYPE and ENTITY declarations',
-        'prevention': 'Disable external entities in XML parser configuration',
-        'reversible': True,
-        'automated': True
-    },
-    'FILE_UPLOAD': {
-        'severity': 'HIGH',
-        'immediate': 'Quarantine uploaded file, scan with antivirus',
-        'short_term': 'Validate file types, implement file size limits',
-        'long_term': 'Sandbox file processing, implement virus scanning',
-        'detection': 'Check file signatures, not just extensions',
-        'prevention': 'Allowlist file types, scan uploads, store outside webroot',
-        'reversible': True,
-        'automated': True
-    }
 }
 
 def get_recommended_actions(vuln_type):
@@ -169,176 +124,12 @@ def get_recommended_actions(vuln_type):
         'automated': False
     }
 
-def check_brute_force(source_ip, success):
-    """
-    Check for brute force login attempts
-    Returns: (is_brute_force, failed_count)
-    """
-    current_time = time.time()
-    time_window = 300  # 5 minutes
-    threshold = 5  # 5 failed attempts
-    
-    # Clean old entries
-    if source_ip in failed_login_tracker:
-        failed_login_tracker[source_ip] = [
-            t for t in failed_login_tracker[source_ip] 
-            if current_time - t < time_window
-        ]
-    
-    if not success:
-        failed_login_tracker[source_ip].append(current_time)
-    else:
-        if source_ip in failed_login_tracker:
-            del failed_login_tracker[source_ip]
-        return False, 0
-    
-    failed_count = len(failed_login_tracker[source_ip])
-    is_brute_force = failed_count >= threshold
-    
-    return is_brute_force, failed_count
-
-def check_directory_bruteforce(source_ip, endpoint, status_code):
-    """
-    FIXED: Detect directory/file brute-force attempts
-    Returns: (is_bruteforce, attempt_count)
-    """
-    current_time = time.time()
-    time_window = 60  # 1 minute
-    threshold = 10  # 10 404s in 1 minute
-    
-    # Clean old entries
-    if source_ip in file_access_tracker:
-        file_access_tracker[source_ip] = [
-            (t, e, s) for t, e, s in file_access_tracker[source_ip]
-            if current_time - t < time_window
-        ]
-    
-    # Track this access
-    file_access_tracker[source_ip].append((current_time, endpoint, status_code))
-    
-    # Count 404 errors
-    not_found_count = sum(1 for _, _, s in file_access_tracker[source_ip] if s == 404)
-    
-    is_bruteforce = not_found_count >= threshold
-    
-    return is_bruteforce, not_found_count
-
-def check_cookie_manipulation(source_ip, cookie_data, expected_signature):
-    """
-    FIXED: Detect cookie manipulation attempts
-    Returns: (is_manipulated, details)
-    """
-    current_time = time.time()
-    
-    if not cookie_data:
-        return False, None
-    
-    # Parse cookie data if it's a JSON string
-    try:
-        if isinstance(cookie_data, str):
-            cookies = json.loads(cookie_data)
-        else:
-            cookies = cookie_data or {}
-        
-        # Check if session cookie exists and looks suspicious
-        session_cookie = str(cookies.get('session', ''))
-        
-        if not session_cookie:
-            return False, None
-        
-        # Basic checks for cookie manipulation
-        suspicious_patterns = [
-            len(session_cookie) > 500,  # Unusually long
-            '..' in session_cookie,  # Path traversal in cookie
-            '<script>' in session_cookie.lower(),  # XSS attempt
-            ('admin' in session_cookie.lower() or 'role' in session_cookie.lower()),  # Role manipulation attempt
-            '||' in session_cookie or '&&' in session_cookie,  # Logic operator injection
-        ]
-        
-        if any(suspicious_patterns):
-            session_manipulation_tracker[source_ip].append(current_time)
-            
-            # Determine which pattern matched
-            if len(session_cookie) > 500:
-                return True, "Unusually long session cookie detected"
-            elif '..' in session_cookie:
-                return True, "Path traversal pattern in cookie"
-            elif '<script>' in session_cookie.lower():
-                return True, "XSS attempt in cookie"
-            elif 'admin' in session_cookie.lower() or 'role' in session_cookie.lower():
-                return True, "Role/privilege manipulation attempt in cookie"
-            else:
-                return True, "Suspicious cookie pattern detected"
-            
-    except Exception as e:
-        print(f"Cookie manipulation check error: {e}")
-        pass
-    
-    return False, None
-
-def check_session_hijacking(session_id, source_ip, user_agent):
-    """
-    FIXED: Detect session hijacking attempts
-    Returns: (is_hijacking, details)
-    """
-    if not session_id or session_id == '':
-        return False, None
-    
-    conn = sqlite3.connect(app.config['MONITOR_DB'])
-    cursor = conn.cursor()
-    
-    try:
-        # Check if this session was previously used from different IP/User-Agent
-        cursor.execute('''
-            SELECT DISTINCT source_ip, user_agent 
-            FROM security_events 
-            WHERE session_id = ? 
-            AND session_id != ''
-            AND timestamp > datetime('now', '-1 hour')
-            ORDER BY timestamp DESC
-            LIMIT 10
-        ''', (session_id,))
-        
-        previous_uses = cursor.fetchall()
-        
-        if len(previous_uses) > 1:
-            # Check for IP mismatch
-            different_ips = [row[0] for row in previous_uses if row[0] != source_ip and row[0]]
-            if len(different_ips) > 0:
-                conn.close()
-                return True, f"Session used from multiple IPs: current={source_ip}, previous={different_ips[0]}"
-            
-            # Check for User-Agent mismatch
-            different_uas = [row[1] for row in previous_uses if row[1] != user_agent and row[1]]
-            if len(different_uas) > 0:
-                conn.close()
-                return True, f"Session used with different User-Agent"
-        
-    except Exception as e:
-        print(f"Session hijacking check error: {e}")
-        pass
-    finally:
-        conn.close()
-    
-    return False, None
-
 def init_monitor_db():
     """Initialize comprehensive monitoring database"""
     conn = sqlite3.connect(app.config['MONITOR_DB'])
     cursor = conn.cursor()
     
-    # Check and recreate tables if needed
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    existing_tables = [row[0] for row in cursor.fetchall()]
-    
-    if 'security_events' in existing_tables:
-        cursor.execute("PRAGMA table_info(security_events)")
-        columns = [col[1] for col in cursor.fetchall()]
-        if 'attack_metadata' not in columns:
-            print("⚠️  Recreating security_events table with enhanced schema...")
-            cursor.execute('DROP TABLE IF EXISTS security_events')
-    
-    # Enhanced security events table with attack metadata
+    # Enhanced security events table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS security_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -373,7 +164,7 @@ def init_monitor_db():
         )
     ''')
     
-    # IP blacklist/whitelist
+    # IP blacklist
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ip_blacklist (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -390,7 +181,7 @@ def init_monitor_db():
         )
     ''')
     
-    # Enhanced response actions log
+    # Response actions log
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS response_actions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -407,41 +198,6 @@ def init_monitor_db():
             can_reverse BOOLEAN DEFAULT 1,
             reversal_method TEXT,
             FOREIGN KEY (event_id) REFERENCES security_events (id)
-        )
-    ''')
-    
-    # Alert rules with automation
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS alert_rules (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            rule_name TEXT NOT NULL,
-            vulnerability_type TEXT NOT NULL,
-            threshold INTEGER NOT NULL,
-            time_window INTEGER NOT NULL,
-            action TEXT NOT NULL,
-            active BOOLEAN DEFAULT 1,
-            automated BOOLEAN DEFAULT 0,
-            UNIQUE(rule_name, vulnerability_type)
-        )
-    ''')
-    
-    # File upload tracking
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS file_uploads (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            source_ip TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            file_size INTEGER,
-            mime_type TEXT,
-            file_hash TEXT,
-            virustotal_scan_id TEXT,
-            virustotal_positives INTEGER,
-            virustotal_total INTEGER,
-            malicious BOOLEAN DEFAULT 0,
-            blocked BOOLEAN DEFAULT 0,
-            quarantined BOOLEAN DEFAULT 0,
-            file_path TEXT
         )
     ''')
     
@@ -470,34 +226,9 @@ def init_monitor_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_source_ip ON security_events(source_ip)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_ip_blacklist ON ip_blacklist(ip_address, active)')
     
-    # Delete existing rules to prevent duplicates
-    cursor.execute('DELETE FROM alert_rules')
-    
-    # Insert enhanced alert rules
-    default_rules = [
-        ('Failed Login Threshold', 'BRUTE_FORCE', 5, 300, 'BLOCK_IP', 1, 1),
-        ('CSRF Attack Threshold', 'CSRF', 3, 600, 'ALERT_ADMIN', 1, 0),
-        ('Path Traversal Threshold', 'PATH_TRAVERSAL', 3, 300, 'BLOCK_IP', 1, 1),
-        ('SSRF Attempt Threshold', 'SSRF', 2, 600, 'BLOCK_IP', 1, 1),
-        ('SQLi Attempt Threshold', 'SQL_INJECTION', 3, 300, 'BLOCK_IP', 1, 1),
-        ('Directory Bruteforce Threshold', 'DIRECTORY_BRUTEFORCE', 10, 60, 'BLOCK_IP', 1, 1),
-        ('Cookie Manipulation Threshold', 'COOKIE_MANIPULATION', 3, 300, 'INVALIDATE_SESSION', 1, 1),
-        ('Session Hijacking Detection', 'SESSION_HIJACKING', 1, 3600, 'BLOCK_IP', 1, 1),
-    ]
-    
-    for rule in default_rules:
-        try:
-            cursor.execute('''
-                INSERT OR IGNORE INTO alert_rules 
-                (rule_name, vulnerability_type, threshold, time_window, action, active, automated)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', rule)
-        except Exception as e:
-            print(f"Warning: Could not insert rule: {e}")
-    
     conn.commit()
     conn.close()
-    print("✅ Enhanced monitoring database initialized with ALL attack vector coverage")
+    print("✅ Simplified monitoring database initialized")
 
 def auto_block_ip(ip_address, reason, duration_minutes=60, performed_by='SYSTEM'):
     """Automatically block an IP address"""
@@ -514,9 +245,6 @@ def auto_block_ip(ip_address, reason, duration_minutes=60, performed_by='SYSTEM'
                 ?)
     ''', (ip_address, reason, expires_at, performed_by, ip_address, datetime.now().isoformat()))
     
-    action_id = cursor.lastrowid
-    
-    # Log the action with reversal method
     cursor.execute('''
         INSERT INTO response_actions
         (action_type, action_details, performed_by, automatic, can_reverse, reversal_method)
@@ -529,7 +257,6 @@ def auto_block_ip(ip_address, reason, duration_minutes=60, performed_by='SYSTEM'
     
     blocked_ips.add(ip_address)
     print(f"✅ IP {ip_address} blocked: {reason}")
-    return action_id
 
 def is_ip_blocked(ip_address):
     """Check if IP is currently blocked"""
@@ -554,20 +281,6 @@ def is_ip_blocked(ip_address):
         return True
     
     return False
-
-def log_response_action(event_id, action_type, details, performed_by='SYSTEM', automatic=True, can_reverse=True, reversal_method=None):
-    """Log a response action with reversal information"""
-    conn = sqlite3.connect(app.config['MONITOR_DB'])
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO response_actions 
-        (event_id, action_type, action_details, performed_by, automatic, can_reverse, reversal_method)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (event_id, action_type, details, performed_by, automatic, can_reverse, reversal_method))
-    
-    conn.commit()
-    conn.close()
 
 @app.route('/')
 def index():
@@ -648,7 +361,6 @@ def get_events():
     
     for row in cursor.fetchall():
         event = dict(row)
-        # Add recommended actions if not present
         if not event.get('recommended_action'):
             actions = get_recommended_actions(event.get('vulnerability_type', ''))
             event['recommended_action'] = json.dumps(actions)
@@ -660,7 +372,7 @@ def get_events():
 
 @app.route('/api/event_details/<int:event_id>')
 def get_event_details(event_id):
-    """Get detailed information about a specific event with ALL metadata"""
+    """Get detailed information about a specific event"""
     if 'admin_user' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
@@ -778,74 +490,55 @@ def get_statistics():
 @app.route('/api/log_event', methods=['POST'])
 def log_event():
     """
-    FIXED: Log a security event with ENHANCED metadata tracking
-    Now captures: cookies, session data, referer, attack patterns, and more
+    SIMPLIFIED: Log security event - TRUSTS what the SCADA app sends
     """
     try:
         data = request.json
+        
+        print(f"\n=== RECEIVED EVENT ===")
+        print(f"Event Type: {data.get('event_type')}")
+        print(f"Vulnerability Type: {data.get('vulnerability_type')}")
+        print(f"Severity: {data.get('severity')}")
+        print(f"Description: {data.get('description')}")
+        print(f"System Version: {data.get('system_version')}")
+        print(f"Source IP: {data.get('source_ip')}")
+        print("===================\n")
+        
         source_ip = data.get('source_ip', request.remote_addr)
         
         # Check if IP is blocked
         if is_ip_blocked(source_ip):
             return jsonify({'status': 'blocked', 'message': 'IP address is blocked'}), 403
         
-        # Enhanced attack detection
-        is_login_attempt = data.get('event_type') == 'LOGIN_ATTEMPT'
-        success = data.get('success', False)
+        # Get all fields with defaults
         endpoint = data.get('endpoint', '')
+        method = data.get('method', 'GET')
         status_code = data.get('response_status', 200)
-        
-        is_brute_force = False
-        failed_count = 0
-        
-        # Check for brute force
-        if is_login_attempt:
-            is_brute_force, failed_count = check_brute_force(source_ip, success)
-            
-            if is_brute_force:
-                data['vulnerability_type'] = 'BRUTE_FORCE'
-                data['severity'] = 'MEDIUM'
-                data['description'] = f'Brute force attack detected: {failed_count} failed attempts in 5 minutes'
-        
-        # NEW: Check for directory brute-force
-        is_dir_bruteforce, not_found_count = check_directory_bruteforce(source_ip, endpoint, status_code)
-        if is_dir_bruteforce and status_code == 404:
-            data['vulnerability_type'] = 'DIRECTORY_BRUTEFORCE'
-            data['severity'] = 'MEDIUM'
-            data['description'] = f'Directory brute-force detected: {not_found_count} 404 errors in 1 minute'
-        
-        # FIXED: Check for cookie manipulation
+        session_id = data.get('session_id', '')
+        user_agent = data.get('user_agent', '')
         cookies = data.get('cookies', '')
+        request_payload = data.get('payload', '')
+        vuln_type = data.get('vulnerability_type', 'UNKNOWN')
+        severity = data.get('severity', 'INFO')
+        description = data.get('description', '')
+        system_version = data.get('system_version', 'unknown')
+        
+        # Parse cookies if string
         if isinstance(cookies, str) and cookies:
             try:
                 cookies = json.loads(cookies)
             except:
                 pass
+        elif not cookies:
+            cookies = {}
         
-        expected_sig = data.get('expected_signature', '')
-        is_cookie_manipulated, cookie_details = check_cookie_manipulation(source_ip, cookies, expected_sig)
-        if is_cookie_manipulated:
-            data['vulnerability_type'] = 'COOKIE_MANIPULATION'
-            data['severity'] = 'HIGH'
-            data['description'] = f'Cookie manipulation detected: {cookie_details}'
-        
-        # FIXED: Check for session hijacking
-        session_id = data.get('session_id', '')
-        user_agent = data.get('user_agent', '')
-        is_hijacking, hijack_details = check_session_hijacking(session_id, source_ip, user_agent)
-        if is_hijacking:
-            data['vulnerability_type'] = 'SESSION_HIJACKING'
-            data['severity'] = 'CRITICAL'
-            data['description'] = f'Session hijacking detected: {hijack_details}'
-        
+        # Log event to database
         conn = sqlite3.connect(app.config['MONITOR_DB'])
         cursor = conn.cursor()
         
-        # Get recommended actions
-        vuln_type = data.get('vulnerability_type', '')
         recommended_actions = get_recommended_actions(vuln_type)
         
-        # Build comprehensive attack metadata
+        # Build attack metadata
         attack_metadata = {
             'source_ip': source_ip,
             'user_agent': user_agent,
@@ -853,80 +546,48 @@ def log_event():
             'cookies': str(cookies) if cookies else '',
             'session_id': session_id,
             'endpoint': endpoint,
-            'method': data.get('method', 'GET'),
+            'method': method,
             'status_code': status_code,
-            'timestamp': datetime.now().isoformat(),
-            'attack_indicators': {
-                'brute_force': is_brute_force,
-                'directory_bruteforce': is_dir_bruteforce,
-                'cookie_manipulation': is_cookie_manipulated,
-                'session_hijacking': is_hijacking,
-                'failed_attempts': failed_count,
-                '404_count': not_found_count if is_dir_bruteforce else 0
-            }
+            'timestamp': datetime.now().isoformat()
         }
         
-        # Log event with ALL metadata
+        # Insert event
         cursor.execute('''
-            INSERT INTO security_events 
+            INSERT INTO security_events
             (event_type, severity, source_ip, user_agent, endpoint, method,
              request_headers, request_payload, response_status, session_id,
              username, vulnerability_type, attack_classification, blocked,
-             auto_blocked, description, system_version, recommended_action, 
+             auto_blocked, description, system_version, recommended_action,
              admin_reviewed, attack_metadata, attack_pattern, cookies, referer)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
         ''', (
             data.get('event_type', 'UNKNOWN'),
-            data.get('severity', 'INFO'),
+            severity,
             source_ip,
             user_agent[:500] if user_agent else '',
             endpoint,
-            data.get('method', 'GET'),
+            method,
             json.dumps(data.get('headers', {}))[:2000],
-            str(data.get('payload', ''))[:2000],
+            str(request_payload)[:2000] if request_payload else '',
             status_code,
             session_id,
             data.get('username', ''),
             vuln_type,
-            data.get('classification', ''),
+            data.get('attack_classification', ''),
             data.get('blocked', False),
             data.get('auto_blocked', False),
-            data.get('description', ''),
-            data.get('system_version', 'unknown'),
+            description,
+            system_version,
             json.dumps(recommended_actions),
             json.dumps(attack_metadata),
             data.get('attack_pattern', ''),
-            str(cookies) if cookies else None,  # Store cookies as string
+            str(cookies) if cookies else None,
             data.get('referer', '')
         ))
         
         event_id = cursor.lastrowid
         
-        # Auto-block based on thresholds
-        if is_brute_force and failed_count >= 5:
-            cursor.execute('''
-                SELECT COUNT(*) FROM ip_blacklist WHERE ip_address = ? AND active = 1
-            ''', (source_ip,))
-            
-            if cursor.fetchone()[0] == 0:
-                auto_block_ip(source_ip, f'Brute force: {failed_count} failed login attempts', 60, 'SYSTEM')
-        
-        if is_dir_bruteforce and not_found_count >= 10:
-            cursor.execute('''
-                SELECT COUNT(*) FROM ip_blacklist WHERE ip_address = ? AND active = 1
-            ''', (source_ip,))
-            
-            if cursor.fetchone()[0] == 0:
-                auto_block_ip(source_ip, f'Directory brute-force: {not_found_count} 404s', 60, 'SYSTEM')
-        
-        if is_cookie_manipulated or is_hijacking:
-            cursor.execute('''
-                SELECT COUNT(*) FROM ip_blacklist WHERE ip_address = ? AND active = 1
-            ''', (source_ip,))
-            
-            if cursor.fetchone()[0] == 0:
-                reason = 'Cookie manipulation' if is_cookie_manipulated else 'Session hijacking'
-                auto_block_ip(source_ip, reason, 60, 'SYSTEM')
+        print(f"✅ Event logged with ID: {event_id}")
         
         conn.commit()
         conn.close()
@@ -934,12 +595,14 @@ def log_event():
         return jsonify({'status': 'success', 'event_id': event_id})
         
     except Exception as e:
-        print(f"Error logging event: {e}")
+        print(f"❌ Error logging event: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/take_action', methods=['POST'])
 def take_action():
-    """FIXED: Manual and automated action by administrator with proper reversal"""
+    """Manual action by administrator"""
     if 'admin_user' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
@@ -962,145 +625,25 @@ def take_action():
             
         elif action_type == 'UNBLOCK_IP':
             ip_address = data.get('ip_address')
-            cursor.execute('''
-                UPDATE ip_blacklist 
-                SET active = 0
-                WHERE ip_address = ?
-            ''', (ip_address,))
+            cursor.execute('UPDATE ip_blacklist SET active = 0 WHERE ip_address = ?', (ip_address,))
             blocked_ips.discard(ip_address)
-            
-            # Store the block ID for reversal
-            cursor.execute('SELECT id FROM ip_blacklist WHERE ip_address = ?', (ip_address,))
-            block_id = cursor.fetchone()
-            block_id = block_id[0] if block_id else None
-            
-            cursor.execute('''
-                INSERT INTO response_actions
-                (action_type, action_details, performed_by, automatic, can_reverse, reversal_method)
-                VALUES (?, ?, ?, 0, 1, ?)
-            ''', ('UNBLOCK_IP', f'Unblocked {ip_address}', performed_by,
-                  f'UPDATE ip_blacklist SET active = 1 WHERE id = {block_id}' if block_id else None))
-            
             result['message'] = f'IP {ip_address} unblocked'
             
         elif action_type == 'MARK_FALSE_POSITIVE':
             event_id = data.get('event_id')
             notes = data.get('notes', '')
             
-            # Check current state
             cursor.execute('SELECT false_positive FROM security_events WHERE id = ?', (event_id,))
             current_state = cursor.fetchone()
             
             if current_state and current_state[0] == 1:
-                # Already marked as false positive, so unmark it
-                cursor.execute('''
-                    UPDATE security_events
-                    SET false_positive = 0, notes = ?, admin_reviewed = 1
-                    WHERE id = ?
-                ''', (notes, event_id))
+                cursor.execute('UPDATE security_events SET false_positive = 0, notes = ?, admin_reviewed = 1 WHERE id = ?',
+                              (notes, event_id))
                 result['message'] = f'Event {event_id} unmarked as false positive'
             else:
-                # Mark as false positive
-                cursor.execute('''
-                    UPDATE security_events
-                    SET false_positive = 1, notes = ?, admin_reviewed = 1
-                    WHERE id = ?
-                ''', (notes, event_id))
+                cursor.execute('UPDATE security_events SET false_positive = 1, notes = ?, admin_reviewed = 1 WHERE id = ?',
+                              (notes, event_id))
                 result['message'] = f'Event {event_id} marked as false positive'
-            
-            cursor.execute('''
-                INSERT INTO response_actions
-                (event_id, action_type, action_details, performed_by, automatic, can_reverse, reversal_method)
-                VALUES (?, ?, ?, ?, 0, 1, ?)
-            ''', (event_id, 'TOGGLE_FALSE_POSITIVE', result['message'], performed_by,
-                  f'UPDATE security_events SET false_positive = 1 - false_positive WHERE id = {event_id}'))
-            
-        elif action_type == 'DELETE_EVENT':
-            event_id = data.get('event_id')
-            cursor.execute('DELETE FROM security_events WHERE id = ?', (event_id,))
-            
-            cursor.execute('''
-                INSERT INTO response_actions
-                (event_id, action_type, action_details, performed_by, automatic, can_reverse)
-                VALUES (?, ?, ?, ?, 0, 0)
-            ''', (event_id, 'DELETE_EVENT', f'Deleted event {event_id}', performed_by))
-            
-            result['message'] = f'Event {event_id} deleted'
-            
-        elif action_type == 'REVERSE_ACTION':
-            action_id = data.get('action_id')
-            cursor.execute('''
-                SELECT action_type, action_details, reversal_method, event_id FROM response_actions WHERE id = ?
-            ''', (action_id,))
-            action = cursor.fetchone()
-            
-            if action:
-                action_type_to_reverse = action[0]
-                reversal_method = action[2]
-                event_id = action[3]
-                
-                # Execute reversal if method provided
-                if reversal_method:
-                    try:
-                        cursor.execute(reversal_method)
-                        
-                        # Special handling for BLOCK_IP reversal (re-block the IP)
-                        if action_type_to_reverse == 'UNBLOCK_IP':
-                            # Extract IP from action details
-                            import re
-                            match = re.search(r'Unblocked (\d+\.\d+\.\d+\.\d+)', action[1])
-                            if match:
-                                ip = match.group(1)
-                                blocked_ips.add(ip)
-                        
-                        # Special handling for UNBLOCK_IP reversal (remove from blocked set)
-                        if action_type_to_reverse == 'BLOCK_IP':
-                            # Extract IP from action details
-                            import re
-                            match = re.search(r'Blocked (\d+\.\d+\.\d+\.\d+)', action[1])
-                            if match:
-                                ip = match.group(1)
-                                blocked_ips.discard(ip)
-                        
-                        result['message'] = f'Action {action_id} reversed successfully'
-                    except Exception as e:
-                        result['message'] = f'Reversal failed: {e}'
-                        result['status'] = 'error'
-                else:
-                    result['message'] = 'No reversal method available'
-                    result['status'] = 'error'
-                
-                if result.get('status') != 'error':
-                    cursor.execute('''
-                        UPDATE response_actions
-                        SET reversed = 1, reversed_at = ?, reversed_by = ?
-                        WHERE id = ?
-                    ''', (datetime.now().isoformat(), performed_by, action_id))
-            
-        elif action_type == 'UPDATE_RULE':
-            rule_id = data.get('rule_id')
-            active = data.get('active', 1)
-            automated = data.get('automated', 0)
-            threshold = data.get('threshold')
-            
-            updates = []
-            params = []
-            if active is not None:
-                updates.append('active = ?')
-                params.append(active)
-            if automated is not None:
-                updates.append('automated = ?')
-                params.append(automated)
-            if threshold is not None:
-                updates.append('threshold = ?')
-                params.append(threshold)
-            
-            params.append(rule_id)
-            cursor.execute(f'''
-                UPDATE alert_rules SET {', '.join(updates)} WHERE id = ?
-            ''', params)
-            
-            result['message'] = f'Rule {rule_id} updated'
         
         conn.commit()
         conn.close()
@@ -1144,51 +687,22 @@ def get_response_actions():
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    cursor.execute('''
-        SELECT * FROM response_actions
-        ORDER BY timestamp DESC
-        LIMIT ?
-    ''', (limit,))
+    cursor.execute('SELECT * FROM response_actions ORDER BY timestamp DESC LIMIT ?', (limit,))
     
     actions = [dict(row) for row in cursor.fetchall()]
     conn.close()
     
     return jsonify(actions)
 
-@app.route('/api/alert_rules')
-def get_alert_rules():
-    """Get alert rules for admin configuration"""
-    if 'admin_user' not in session:
-        return jsonify({'error': 'Not authenticated', 'redirect': '/login'}), 401
-    
-    conn = sqlite3.connect(app.config['MONITOR_DB'])
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT * FROM alert_rules ORDER BY id')
-    rules = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    
-    return jsonify(rules)
-
 if __name__ == '__main__':
     init_monitor_db()
-    print("\n🔍 COMPLETE Enhanced Security Monitoring System")
+    print("\n🔍 SIMPLIFIED Security Monitoring System")
     print("=" * 60)
     print("Dashboard: http://localhost:5002")
     print("Default login: admin / monitor123")
     print("=" * 60)
-    print("\nALL Assignment Requirements Met:")
-    print("✅ Monitors vulnerable AND patched endpoints")
-    print("✅ Login and authentication monitoring")
-    print("✅ Directory/file brute-force detection")
-    print("✅ Cookie manipulation detection")
-    print("✅ Session hijacking detection")
-    print("✅ Comprehensive attack metadata logging")
-    print("✅ Attack classification for all vectors")
-    print("✅ Manual action capabilities")
-    print("✅ Automated action capabilities")
-    print("✅ Reversible actions with proper execution")
-    print("✅ Dynamic false positive button")
+    print("\nThis version TRUSTS what the SCADA apps send")
+    print("✅ No complex re-detection logic")
+    print("✅ Logs everything the SCADA app reports")
     print("=" * 60)
     app.run(host='0.0.0.0', port=5002, debug=True)
